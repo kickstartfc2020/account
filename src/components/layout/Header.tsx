@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { LOCATIONS, SPORTS } from '@/data/mockData';
+import { useLocations, useSports } from '@/hooks/useData';
 import { useNavigate } from 'react-router-dom';
 import {
   Dialog,
@@ -19,13 +19,14 @@ import {
 } from "@/components/ui/dialog";
 
 export function Header() {
-  const [currentLocation, setCurrentLocation] = React.useState(LOCATIONS[0].name);
+  const { data: locations } = useLocations();
+  const { data: sports } = useSports();
   const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const navigate = useNavigate();
 
   const handleCreateInvoiceClick = () => {
-    if (SPORTS.length === 1) {
-      navigate(`/invoices/create?sportId=${SPORTS[0].id}`);
+    if (sports.length === 1) {
+      navigate(`/invoices/create?sportId=${sports[0].id}`);
     } else {
       setIsSportDialogOpen(true);
     }
@@ -43,7 +44,7 @@ export function Header() {
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg">
           <span className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Branch:</span>
-          <span className="text-sm font-bold text-indigo-700">{LOCATIONS[0].name}</span>
+          <span className="text-sm font-bold text-indigo-700">{locations[0]?.name ?? ''}</span>
         </div>
 
         <Button variant="ghost" size="icon" className="relative text-slate-500">
@@ -74,7 +75,7 @@ export function Header() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-4">
-            {SPORTS.map((sport) => (
+            {sports.map((sport) => (
               <Button 
                 key={sport.id} 
                 variant="outline" 

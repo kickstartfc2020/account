@@ -8,12 +8,8 @@ import {
   Share2,
   ReceiptText
 } from 'lucide-react';
-import { 
-  INVOICES, 
-  ACADEMY_DETAILS,
-  STUDENTS,
-  LOCATIONS
-} from '@/data/mockData';
+import { ACADEMY_DETAILS } from '@/data/mockData';
+import { useInvoices, useStudents, useLocations } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
@@ -21,8 +17,11 @@ import { toast } from 'sonner';
 export default function ViewInvoice() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const { data: invoices } = useInvoices();
+  const { data: students } = useStudents();
+  const { data: locations } = useLocations();
   
-  const invoice = INVOICES.find(inv => inv.id === id);
+  const invoice = invoices.find(inv => inv.id === id);
   
   if (!invoice) {
     return (
@@ -42,8 +41,8 @@ export default function ViewInvoice() {
     );
   }
 
-  const student = STUDENTS.find(s => s.id === invoice.studentId);
-  const location = LOCATIONS.find(l => l.name === invoice.locationName) || LOCATIONS[0];
+  const student = students.find(s => s.id === invoice.studentId);
+  const location = locations.find(l => l.name === invoice.locationName) || locations[0];
 
   const handlePrint = () => {
     window.print();

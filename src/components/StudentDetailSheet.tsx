@@ -20,7 +20,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Student } from '@/types';
-import { INVOICES, PACKAGES } from '@/data/mockData';
+import { useInvoices, usePackages } from '@/hooks/useData';
 import { format, addDays, parseISO } from 'date-fns';
 
 interface StudentDetailSheetProps {
@@ -31,16 +31,18 @@ interface StudentDetailSheetProps {
 export function StudentDetailSheet({ student, children }: StudentDetailSheetProps) {
   const navigate = useNavigate();
   const [view, setView] = React.useState<'details' | 'history'>('details');
+  const { data: allInvoices } = useInvoices();
+  const { data: allPackages } = usePackages();
   
   const studentInvoices = React.useMemo(() => {
-    return INVOICES.filter(inv => inv.studentId === student.id);
-  }, [student.id]);
+    return allInvoices.filter(inv => inv.studentId === student.id);
+  }, [student.id, allInvoices]);
 
   const totalPaid = React.useMemo(() => {
     return studentInvoices.reduce((sum, inv) => sum + inv.total, 0);
   }, [studentInvoices]);
 
-  const pkg = PACKAGES.find(p => p.id === student.packageId);
+  const pkg = allPackages.find(p => p.id === student.packageId);
   
   const nextRenewalDate = React.useMemo(() => {
     try {
@@ -68,6 +70,7 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
               <Badge className={
                 student.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
                 student.status === 'expiring' ? 'bg-amber-100 text-amber-700' :
+                student.status === 'unknown' ? 'bg-slate-100 text-slate-600' :
                 'bg-red-100 text-red-700'
               }>
                 {student.status.toUpperCase()}

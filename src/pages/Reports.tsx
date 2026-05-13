@@ -25,16 +25,14 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { REVENUE_DATA } from '@/data/mockData';
-
-const SPORT_DATA = [
-  { name: 'Football', value: 45, color: '#4f46e5' },
-  { name: 'Badminton', value: 25, color: '#10b981' },
-  { name: 'Cricket', value: 20, color: '#f59e0b' },
-  { name: 'Tennis', value: 10, color: '#ef4444' },
-];
+import { useInvoices, useStudents } from '@/hooks/useData';
+import { useReportAnalytics } from '@/hooks/useReportAnalytics';
 
 export default function Reports() {
+  const { data: invoices = [] } = useInvoices();
+  const { data: students = [] } = useStudents();
+  const { revenueData, sportData } = useReportAnalytics(invoices, students);
+
   return (
     <div className="space-y-8 pb-10">
       <div className="flex justify-between items-end">
@@ -62,7 +60,7 @@ export default function Reports() {
           <CardContent>
             <div className="h-[350px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={REVENUE_DATA}>
+                <BarChart data={revenueData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} tickFormatter={(val) => `₹${val/1000}k`} />
@@ -86,7 +84,7 @@ export default function Reports() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={SPORT_DATA}
+                    data={sportData}
                     cx="50%"
                     cy="50%"
                     innerRadius={60}
@@ -94,7 +92,7 @@ export default function Reports() {
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {SPORT_DATA.map((entry, index) => (
+                    {sportData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -103,7 +101,7 @@ export default function Reports() {
               </ResponsiveContainer>
             </div>
             <div className="grid grid-cols-2 gap-4 w-full pt-4">
-              {SPORT_DATA.map(sport => (
+              {sportData.map(sport => (
                 <div key={sport.name} className="flex items-center gap-2">
                   <div className="w-3 h-3 rounded-full" style={{ backgroundColor: sport.color }} />
                   <span className="text-xs font-medium text-slate-600">{sport.name} ({sport.value}%)</span>
@@ -120,7 +118,7 @@ export default function Reports() {
           <CardContent>
              <div className="h-[300px] w-full">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={REVENUE_DATA}>
+                <LineChart data={revenueData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} dy={10} />
                   <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 12, fill: '#94a3b8' }} />

@@ -48,17 +48,28 @@ import {
   Receipt,
   CalendarDays
 } from 'lucide-react';
-import { RENEWALS, PACKAGES, STUDENTS } from '@/data/mockData';
+import { useRenewals, usePackages, useStudents } from '@/hooks/useData';
 import { format, addMonths, isSameDay, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { DateRange } from "react-day-picker";
 import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { completeRenewal } from '@/lib/renewalWrite';
+import { computeBillingTotals } from '@/lib/billingMath';
 
 export default function Renewals() {
+  const { data: renewalsData } = useRenewals();
+  const { data: packagesData } = usePackages();
+  const { data: studentsData } = useStudents();
+
   const [selectedRenewal, setSelectedRenewal] = React.useState<any>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = React.useState(false);
+  const [selectedPackageId, setSelectedPackageId] = React.useState('');
+  const [paymentMode, setPaymentMode] = React.useState<'upi' | 'cash' | 'card' | 'online'>('upi');
+  const [renewalStartDate, setRenewalStartDate] = React.useState(format(new Date(), 'yyyy-MM-dd'));
+  const [isProcessing, setIsProcessing] = React.useState(false);
+  const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState('all');
   const [sportFilter, setSportFilter] = React.useState('all');
@@ -68,15 +79,55 @@ export default function Renewals() {
 
   const handleRenew = (renewal: any) => {
     setSelectedRenewal(renewal);
+    const initialPackage = packagesData.find((pkg) => pkg.name === renewal.currentPackageName) ?? packagesData[0];
+    setSelectedPackageId(initialPackage?.id ?? '');
+    setPaymentMode('upi');
+    setRenewalStartDate(format(new Date(), 'yyyy-MM-dd'));
   };
 
-  const confirmRenewal = () => {
-    toast.success(`Membership for ${selectedRenewal.studentName} renewed successfully!`);
-    setIsInvoiceOpen(true);
+  const selectedPackage = packagesData.find((pkg) => pkg.id === selectedPackageId) ?? null;
+  const selectedStudent = selectedRenewal ? studentsData.find((student) => student.id === selectedRenewal.studentId) : null;
+  const selectedPackageAmount = selectedPackage?.price ?? 0;
+  const selectedGstPercent = selectedPackage?.taxPercent ?? 18;
+  const selectedBilling = computeBillingTotals(selectedPackageAmount, selectedGstPercent);
+
+  const confirmRenewal = async () => {
+    if (!selectedRenewal || !selectedStudent || !selectedPackage) {
+      toast.error('Select a package before confirming renewal.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      const result = await completeRenewal({
+        renewalId: selectedRenewal.id,
+        studentId: selectedStudent.id,
+        packageId: selectedPackage.id,
+        sportId: selectedPackage.sportId,
+        packageName: selectedPackage.name,
+        sportName: selectedPackage.sportName,
+        amount: selectedPackage.price,
+        gstPercent: selectedPackage.taxPercent,
+        paymentMethod: paymentMode,
+        paymentModeLabel: paymentMode,
+        startDate: renewalStartDate,
+        preferredBranchId: selectedStudent.locationId,
+      });
+
+      setGeneratedInvoiceNumber(result.invoiceNumber);
+      toast.success(`Membership for ${selectedRenewal.studentName} renewed successfully!`);
+      setIsInvoiceOpen(true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to complete renewal.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   // Filtered data
-  const filteredRenewals = RENEWALS.filter(renewal => {
+  const filteredRenewals = renewalsData.filter(renewal => {
     const matchesSearch = 
       renewal.studentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
       renewal.sportName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -101,7 +152,7 @@ export default function Renewals() {
     return matchesSearch && matchesStatus && matchesSport && matchesDate;
   });
 
-  const uniqueSports = Array.from(new Set(RENEWALS.map(r => r.sportName)));
+  const uniqueSports = Array.from(new Set(renewalsData.map(r => r.sportName)));
 
   // Pagination logic
   const totalPages = Math.ceil(filteredRenewals.length / itemsPerPage);
@@ -270,7 +321,7 @@ export default function Renewals() {
           </TableHeader>
           <TableBody>
             {paginatedRenewals.map((renewal) => {
-              const student = STUDENTS.find(s => s.id === renewal.studentId);
+              const student = studentsData.find(s => s.id === renewal.studentId);
               return (
                 <TableRow key={renewal.id}>
                   <TableCell>
@@ -282,13 +333,23 @@ export default function Renewals() {
                               {student.name.split(' ').map(n => n[0]).join('')}
                             </AvatarFallback>
                           </Avatar>
-                          <span className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
-                            {renewal.studentName}
-                          </span>
+                          <div>
+                            <span className="font-semibold text-slate-900 group-hover:text-indigo-600 transition-colors">
+                              {renewal.studentName}
+                            </span>
+                            {renewal.refId && (
+                              <p className="text-[10px] font-mono text-slate-400">{renewal.refId}</p>
+                            )}
+                          </div>
                         </div>
                       </StudentDetailSheet>
                     ) : (
-                      <span className="font-semibold">{renewal.studentName}</span>
+                      <div>
+                        <span className="font-semibold">{renewal.studentName}</span>
+                        {renewal.refId && (
+                          <p className="text-[10px] font-mono text-slate-400">{renewal.refId}</p>
+                        )}
+                      </div>
                     )}
                   </TableCell>
                   <TableCell>{renewal.sportName}</TableCell>
@@ -305,9 +366,9 @@ export default function Renewals() {
                 </TableCell>
                 <TableCell>
                   <Badge className={
-                    renewal.status === 'expired' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-amber-50 text-amber-700 border-amber-100'
+                    renewal.renewalStatus === 'overdue' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-amber-50 text-amber-700 border-amber-100'
                   } variant="outline">
-                    {renewal.status.charAt(0).toUpperCase() + renewal.status.slice(1)}
+                    {(renewal.renewalStatus ?? 'pending').charAt(0).toUpperCase() + (renewal.renewalStatus ?? 'pending').slice(1)}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
@@ -334,12 +395,12 @@ export default function Renewals() {
                         <div className="space-y-4">
                           <div className="space-y-1.5">
                             <label className="text-xs font-bold text-slate-500 uppercase">Select New Package</label>
-                            <Select defaultValue="p1">
+                            <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
                               <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Select package" />
                               </SelectTrigger>
                               <SelectContent>
-                                {PACKAGES.map(pkg => (
+                                {packagesData.map(pkg => (
                                   <SelectItem key={pkg.id} value={pkg.id}>
                                     {pkg.name} - ₹{pkg.price}
                                   </SelectItem>
@@ -351,11 +412,11 @@ export default function Renewals() {
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-1.5">
                               <label className="text-xs font-bold text-slate-500 uppercase">Start Date</label>
-                              <Input type="date" defaultValue={format(new Date(), 'yyyy-MM-dd')} />
+                              <Input type="date" value={renewalStartDate} onChange={(e) => setRenewalStartDate(e.target.value)} />
                             </div>
                             <div className="space-y-1.5">
                               <label className="text-xs font-bold text-slate-500 uppercase">Payment Mode</label>
-                              <Select defaultValue="upi">
+                              <Select value={paymentMode} onValueChange={(v) => setPaymentMode(v as 'upi' | 'cash' | 'card' | 'online')}>
                                 <SelectTrigger className="w-full">
                                   <SelectValue placeholder="Mode" />
                                 </SelectTrigger>
@@ -373,22 +434,22 @@ export default function Renewals() {
                         <div className="pt-4 border-t space-y-2">
                           <div className="flex justify-between text-sm">
                             <span className="text-slate-500">Package Amount</span>
-                            <span className="font-semibold">₹2,000</span>
+                            <span className="font-semibold">₹{selectedBilling.subtotal.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">GST (18%)</span>
-                            <span className="font-semibold">₹360</span>
+                            <span className="text-slate-500">GST ({selectedGstPercent}%)</span>
+                            <span className="font-semibold">₹{selectedBilling.taxTotal.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-lg font-bold">
                             <span>Total Payable</span>
-                            <span className="text-indigo-600">₹2,360</span>
+                            <span className="text-indigo-600">₹{selectedBilling.totalAmount.toLocaleString()}</span>
                           </div>
                         </div>
                       </div>
                       <DialogFooter>
                         <Button variant="outline" className="flex-1">Cancel</Button>
-                        <Button onClick={confirmRenewal} className="flex-1 bg-indigo-600 hover:bg-indigo-700">
-                          Confirm & Invoice
+                        <Button onClick={() => void confirmRenewal()} className="flex-1 bg-indigo-600 hover:bg-indigo-700" disabled={isProcessing}>
+                          {isProcessing ? 'Processing...' : 'Confirm & Invoice'}
                         </Button>
                       </DialogFooter>
                     </DialogContent>
@@ -464,7 +525,7 @@ export default function Renewals() {
               </div>
               <div className="text-right space-y-1">
                 <h1 className="text-4xl font-display font-black text-slate-100 uppercase tracking-widest">Invoice</h1>
-                <p className="text-sm font-semibold text-slate-900">#INV-2025-0042</p>
+                <p className="text-sm font-semibold text-slate-900">#{generatedInvoiceNumber || '---'}</p>
                 <p className="text-xs text-slate-500">Date: {format(new Date(), 'MMM dd, yyyy')}</p>
               </div>
             </div>
@@ -473,7 +534,7 @@ export default function Renewals() {
               <div className="space-y-2">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Bill To</p>
                 <p className="text-lg font-bold text-slate-900">{selectedRenewal?.studentName}</p>
-                <p className="text-sm text-slate-500">Football Training Membership</p>
+                <p className="text-sm text-slate-500">{selectedPackage?.name || 'Membership Renewal'}</p>
               </div>
               <div className="space-y-2 text-right">
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Payment Status</p>
@@ -491,9 +552,9 @@ export default function Renewals() {
               </TableHeader>
               <TableBody>
                 <TableRow>
-                  <TableCell className="font-medium font-bold">Monthly Basic - Football</TableCell>
-                  <TableCell className="text-right">1 Month</TableCell>
-                  <TableCell className="text-right">₹2,000.00</TableCell>
+                  <TableCell className="font-medium font-bold">{selectedPackage?.name || 'Selected Package'}</TableCell>
+                  <TableCell className="text-right">{selectedPackage?.durationMonths || 1} Month{(selectedPackage?.durationMonths || 1) > 1 ? 's' : ''}</TableCell>
+                  <TableCell className="text-right">₹{selectedBilling.subtotal.toFixed(2)}</TableCell>
                 </TableRow>
               </TableBody>
             </Table>
@@ -502,15 +563,15 @@ export default function Renewals() {
               <div className="w-56 space-y-3">
                 <div className="flex justify-between text-sm">
                   <span className="text-slate-500 font-medium">Subtotal</span>
-                  <span className="font-bold">₹2,000.00</span>
+                  <span className="font-bold">₹{selectedBilling.subtotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-slate-500 font-medium">Tax (GST 18%)</span>
-                  <span className="font-bold">₹360.00</span>
+                  <span className="text-slate-500 font-medium">Tax (GST {selectedGstPercent}%)</span>
+                  <span className="font-bold">₹{selectedBilling.taxTotal.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between text-xl font-bold pt-3 border-t">
                   <span>Total</span>
-                  <span className="text-indigo-600">₹2,360.00</span>
+                  <span className="text-indigo-600">₹{selectedBilling.totalAmount.toLocaleString()}</span>
                 </div>
               </div>
             </div>

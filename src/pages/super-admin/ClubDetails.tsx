@@ -15,8 +15,46 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { getOrganizationDetails, updateOrganizationDetails } from '@/lib/adminManagement';
+import { toast } from 'sonner';
 
 export default function ClubDetails() {
+  const [academyName, setAcademyName] = React.useState('Kickstart Academy');
+  const [registrationCode, setRegistrationCode] = React.useState('KICK-2024-8849');
+  const [isSaving, setIsSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    let isMounted = true;
+    getOrganizationDetails()
+      .then((org) => {
+        if (!isMounted || !org) return;
+        setAcademyName(org.name);
+        setRegistrationCode(org.code);
+      })
+      .catch(() => {
+        // Keep default values when org read is unavailable.
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await updateOrganizationDetails({
+        name: academyName.trim(),
+        code: registrationCode.trim(),
+      });
+      toast.success('Organization details updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save organization settings.';
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   return (
     <div className="space-y-8 max-w-5xl mx-auto">
       <div className="flex justify-between items-end">
@@ -24,9 +62,9 @@ export default function ClubDetails() {
           <h1 className="text-3xl font-display font-bold text-gray-900 tracking-tight">Club Details</h1>
           <p className="text-gray-500 mt-1">Global branding and organization settings for Kickstart Academy.</p>
         </div>
-        <Button className="btn-primary gap-2 h-11 px-8 shadow-indigo-100">
+        <Button className="btn-primary gap-2 h-11 px-8 shadow-indigo-100" onClick={() => void handleSave()} disabled={isSaving}>
           <Save className="w-4 h-4" />
-          Save Changes
+          {isSaving ? 'Saving...' : 'Save Changes'}
         </Button>
       </div>
 
@@ -42,11 +80,11 @@ export default function ClubDetails() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Academy Name</Label>
-                  <Input defaultValue="Kickstart Academy" className="h-11" />
+                  <Input value={academyName} onChange={(e) => setAcademyName(e.target.value)} className="h-11" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Registration Number</Label>
-                  <Input defaultValue="KICK-2024-8849" className="h-11" />
+                  <Input value={registrationCode} onChange={(e) => setRegistrationCode(e.target.value)} className="h-11" />
                 </div>
               </div>
               

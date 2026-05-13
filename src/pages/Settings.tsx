@@ -14,30 +14,68 @@ import {
   ShieldCheck, 
   CreditCard,
   Image as ImageIcon,
-  Plus,
-  Trash2,
-  CheckCircle2
+  Plus
 } from 'lucide-react';
-import { GST_RATES } from '@/data/mockData';
+import { useLocations, usePackages } from '@/hooks/useData';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
+import { getOrganizationDetails } from '@/lib/adminManagement';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = React.useState('Organization');
-  const [gstRates, setGstRates] = React.useState(GST_RATES);
+  const { data: packages = [] } = usePackages();
+  const { data: locations = [] } = useLocations();
+  const [organization, setOrganization] = React.useState({
+    name: 'Kickstart Sports Academy',
+    code: 'KA/MYS/2024/0942',
+    gstNumber: 'Not available',
+    phone: 'Not available',
+    address: 'Not available',
+  });
 
-  const handleDeleteGst = (id: string) => {
-    setGstRates(gstRates.filter(rate => rate.id !== id));
-    toast.success('GST rate removed');
-  };
+  React.useEffect(() => {
+    let isMounted = true;
+    getOrganizationDetails()
+      .then((org) => {
+        if (!isMounted || !org) return;
+        setOrganization({
+          name: org.name,
+          code: org.code,
+          gstNumber: (org as { gst_number?: string; gstNumber?: string }).gst_number || (org as { gstNumber?: string }).gstNumber || 'Not available',
+          phone: (org as { phone?: string }).phone || 'Not available',
+          address: (org as { address?: string }).address || 'Not available',
+        });
+      })
+      .catch(() => {
+        // Keep fallback values for unauthenticated/dev states.
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
-  const handleSetDefault = (id: string) => {
-    setGstRates(gstRates.map(rate => ({
-      ...rate,
-      isDefault: rate.id === id
-    })));
-    toast.success('Default GST rate updated');
-  };
+  React.useEffect(() => {
+    const primaryLocation = locations[0];
+    if (!primaryLocation) return;
+
+    setOrganization((prev) => ({
+      ...prev,
+      phone: prev.phone !== 'Not available' ? prev.phone : (primaryLocation.phone || 'Not available'),
+      address: prev.address !== 'Not available' ? prev.address : (primaryLocation.address || 'Not available'),
+    }));
+  }, [locations]);
+
+  const gstRates = React.useMemo(() => {
+    const unique: number[] = Array.from(
+      new Set<number>(packages.map((p) => Number(p.taxPercent)))
+    ).sort((a: number, b: number) => a - b);
+    return unique.map((percent, idx) => ({
+      id: String(percent),
+      name: idx === 0 ? 'Standard GST' : `GST Slab ${idx + 1}`,
+      percentage: percent,
+      isDefault: idx === 0,
+    }));
+  }, [packages]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -91,30 +129,31 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Academy Name</label>
-                      <Input defaultValue="Kickstart Sports Academy" />
+                      <Input value={organization.name} readOnly />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registration ID</label>
-                      <Input defaultValue="KA/MYS/2024/0942" />
+                      <Input value={organization.code} readOnly />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">GST Number</label>
-                      <Input defaultValue="29AAAAA0000A1Z5" />
+                      <Input value={organization.gstNumber} readOnly />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phone</label>
-                      <Input defaultValue="+91 98765 43210" />
+                      <Input value={organization.phone} readOnly />
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Headquarters Address</label>
-                    <Input defaultValue="123 Sport Street, Main Campus, Mysore - 570001" />
+                    <Input value={organization.address} readOnly />
                   </div>
 
-                  <div className="pt-4 border-t flex justify-end gap-3">
-                    <Button variant="outline">Discard Changes</Button>
-                    <Button className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100">Save Changes</Button>
+                  <div className="pt-4 border-t">
+                    <p className="text-xs text-slate-500">
+                      Organization profile values are synced from your configured database records.
+                    </p>
                   </div>
                 </CardContent>
               </Card>
@@ -140,9 +179,9 @@ export default function Settings() {
             <Card className="glass-card">
               <CardHeader className="flex flex-row justify-between items-center">
                 <CardTitle className="text-lg font-display font-bold">GST Configuration</CardTitle>
-                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2">
+                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => toast.info('GST slabs are derived from package tax configuration.') }>
                   <Plus className="w-4 h-4" />
-                  Add New Rate
+                  Manage via Packages
                 </Button>
               </CardHeader>
               <CardContent className="space-y-6">
@@ -166,25 +205,7 @@ export default function Settings() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {!rate.isDefault && (
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            onClick={() => handleSetDefault(rate.id)}
-                            className="text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 h-8 px-3 text-xs font-bold uppercase tracking-wider"
-                          >
-                            <CheckCircle2 className="w-3 h-3 mr-2" />
-                            Set Default
-                          </Button>
-                        )}
-                        <Button 
-                          variant="ghost" 
-                          size="icon" 
-                          onClick={() => handleDeleteGst(rate.id)}
-                          className="text-slate-400 hover:text-red-600 hover:bg-red-50 h-8 w-8"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
+                        <Badge variant="outline" className="text-[10px] uppercase">Synced from packages</Badge>
                       </div>
                     </div>
                   ))}

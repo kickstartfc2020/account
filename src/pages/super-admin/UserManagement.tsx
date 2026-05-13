@@ -24,15 +24,70 @@ import {
   TableRow 
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
+import { useLocations } from '@/hooks/useData';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+
+type AdminUserRow = {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  branch: string;
+  lastActive: string;
+  status: string;
+};
 
 export default function UserManagement() {
-  const users = [
-    { id: '1', name: 'James Wilson', email: 'james.w@kickstart.com', role: 'Super Admin', branch: 'Global', lastActive: '2 mins ago', status: 'active' },
-    { id: '2', name: 'Sarah Connor', email: 'sarah.c@branch.com', role: 'Branch Manager', branch: 'Downtown Arena', lastActive: '1 hour ago', status: 'active' },
-    { id: '3', name: 'Mike Ross', email: 'mike.r@branch.com', role: 'Branch Manager', branch: 'South Side Hub', lastActive: '5 hours ago', status: 'active' },
-    { id: '4', name: 'Rachel Zane', email: 'rachel.z@branch.com', role: 'Accountant', branch: 'Downtown Arena', lastActive: '1 day ago', status: 'active' },
-    { id: '5', name: 'Louis Litt', email: 'louis.l@branch.com', role: 'Branch Manager', branch: 'East Coast Center', lastActive: '3 days ago', status: 'inactive' },
-  ];
+  const { data: locations } = useLocations();
+  const [users, setUsers] = React.useState<AdminUserRow[]>([]);
+
+  React.useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase
+      .from('profiles')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (error || !data) return;
+        const rows = data as any[];
+        setUsers(
+          rows.map((p) => {
+            const location = locations.find((l) => l.id === (p.branch_id as string));
+            const role = String(p.role || '').replace('_', ' ');
+            const title = role
+              .split(' ')
+              .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+              .join(' ');
+            return {
+              id: p.id as string,
+              name: (p.full_name as string) || 'Unnamed User',
+              email: location?.email || 'No email available',
+              role: title || 'Unknown',
+              branch: location?.name || 'Global',
+              lastActive: 'From auth session',
+              status: ((p.status as string) || 'inactive') as string,
+            };
+          })
+        );
+      });
+  }, [locations]);
+
+  const roleDistribution = React.useMemo(() => {
+    const total = users.length || 1;
+    const byRole = users.reduce<Record<string, number>>((acc, u) => {
+      acc[u.role] = (acc[u.role] ?? 0) + 1;
+      return acc;
+    }, {});
+    return Object.entries(byRole).map(([role, count], idx) => {
+      const countNum = Number(count);
+      return ({
+      role,
+      count: countNum,
+      pct: Math.round((countNum / total) * 100),
+      color: idx === 0 ? 'bg-indigo-600' : idx === 1 ? 'bg-blue-500' : 'bg-purple-600',
+      });
+    });
+  }, [users]);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -151,33 +206,17 @@ export default function UserManagement() {
               <CardTitle className="text-base font-bold">Role Distribution</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Branch Managers</span>
-                  <span className="font-bold text-gray-900">8</span>
+              {roleDistribution.map((r) => (
+                <div className="space-y-2" key={r.role}>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-gray-500 font-medium">{r.role}</span>
+                    <span className="font-bold text-gray-900">{r.count}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                    <div className={`${r.color} h-full`} style={{ width: `${r.pct}%` }} />
+                  </div>
                 </div>
-                <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-indigo-600 h-full w-[65%]" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Accountants</span>
-                  <span className="font-bold text-gray-900">3</span>
-                </div>
-                <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-blue-500 h-full w-[25%]" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs">
-                  <span className="text-gray-500 font-medium">Global Admins</span>
-                  <span className="font-bold text-gray-900">1</span>
-                </div>
-                <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-purple-600 h-full w-[10%]" />
-                </div>
-              </div>
+              ))}
             </CardContent>
           </Card>
         </div>

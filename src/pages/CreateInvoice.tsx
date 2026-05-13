@@ -15,14 +15,10 @@ import {
   ReceiptText
 } from 'lucide-react';
 import { 
-  STUDENTS, 
-  PACKAGES, 
-  SPORTS, 
-  LOCATIONS, 
-  INVOICES,
   ACADEMY_DETAILS,
   GST_RATES
 } from '@/data/mockData';
+import { useStudents, usePackages, useSports, useLocations, useInvoices } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,12 +33,20 @@ import {
 import { cn } from '@/lib/utils';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
+import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 
 export default function CreateInvoice() {
+  const { data: students } = useStudents();
+  const { data: packages } = usePackages();
+  const { data: sports } = useSports();
+  const { data: locations } = useLocations();
+  const { data: invoices } = useInvoices();
+
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const sportId = searchParams.get('sportId');
-  const sport = SPORTS.find(s => s.id === sportId) || SPORTS[0];
+  const sport = sports.find(s => s.id === sportId) || sports[0];
   
   const defaultGstRatePercentage = GST_RATES.find(r => r.isDefault)?.percentage.toString() || '18';
   
@@ -51,34 +55,35 @@ export default function CreateInvoice() {
   const [paymentMode, setPaymentMode] = React.useState('QR');
   const [gstRate, setGstRate] = React.useState(defaultGstRatePercentage);
   const [isGenerated, setIsGenerated] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   
-  const selectedStudent = STUDENTS.find(s => s.id === selectedStudentId);
+  const selectedStudent = students.find(s => s.id === selectedStudentId);
 
   React.useEffect(() => {
     if (selectedStudent) {
-      const pkg = PACKAGES.find(p => p.id === selectedStudent.packageId) || PACKAGES.find(p => p.sportId === sportId);
+      const pkg = packages.find(p => p.id === selectedStudent.packageId) || packages.find(p => p.sportId === sportId);
       if (pkg) setAmount(pkg.price.toString());
     }
-  }, [selectedStudentId, sportId, selectedStudent]);
+  }, [selectedStudentId, sportId, selectedStudent, packages]);
   
-  const filteredStudents = STUDENTS.filter(s => 
+  const filteredStudents = students.filter(s => 
     s.sportId === sportId && 
     (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm))
   );
   
-  const studentPayments = INVOICES.filter(inv => inv.studentId === selectedStudentId);
-  const branch = LOCATIONS[0];
-  
-  // Package calculation
-  const studentPackage = PACKAGES.find(p => p.id === selectedStudent?.packageId) || PACKAGES.find(p => p.sportId === sportId);
-  const subtotal = parseFloat(amount) || 0;
-  const discountAmount = parseFloat(discount) || 0;
-  const taxableAmount = Math.max(0, subtotal - discountAmount);
-  const currentTaxRate = parseInt(gstRate) / 100;
-  const taxAmount = taxableAmount * currentTaxRate;
-  const total = taxableAmount + taxAmount;
+  const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
+  const branch = locations[0];
+  const studentPackage = packages.find(p => p.id === selectedStudent?.packageId) || packages.find(p => p.sportId === sportId);
+  const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
+    useInvoiceCalculator({
+      amount,
+      discount,
+      gstRate,
+      academyName: ACADEMY_DETAILS.name,
+      invoiceCount: invoices.length,
+    });
 
   const handlePrint = () => {
     window.print();
@@ -92,10 +97,48 @@ export default function CreateInvoice() {
     toast.success(`Invoice shared via ${method}`);
   };
 
-  // Invoice Number Generation
-  const academyPrefix = ACADEMY_DETAILS.name.substring(0, 3).toUpperCase();
-  const sequenceNumber = (INVOICES.length + 1).toString().padStart(2, '0');
-  const invoiceNumber = `INC${academyPrefix}${sequenceNumber}`;
+  const mapPaymentMethod = (mode: string): 'cash' | 'card' | 'upi' | 'online' | 'bank_transfer' => {
+    if (mode === 'Cash') return 'cash';
+    if (mode === 'Bank') return 'bank_transfer';
+    return 'upi';
+  };
+
+  const handleFinalizeInvoice = async () => {
+    if (!selectedStudent || !studentPackage) {
+      toast.error('Select a student and package before finalizing.');
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const result = await finalizeInvoiceWrite({
+        studentId: selectedStudent.id,
+        packageId: studentPackage.id,
+        sportId: sport.id,
+        packageName: studentPackage.name,
+        sportName: sport.name,
+        subtotal,
+        discountTotal: discountAmount,
+        taxableAmount,
+        taxTotal: taxAmount,
+        totalAmount: total,
+        gstPercent: parseFloat(gstRate),
+        paymentMethod: mapPaymentMethod(paymentMode),
+        paymentModeLabel: paymentMode,
+        preferredBranchId: selectedStudent.locationId,
+      });
+
+      setIsGenerated(true);
+      toast.success('Invoice finalized and payment recorded.');
+      navigate(`/invoices/view/${result.invoiceNumber}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to finalize invoice.';
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   return (
     <div className="flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm">
@@ -122,8 +165,12 @@ export default function CreateInvoice() {
             PDF
           </Button>
           <div className="h-6 w-[1px] bg-gray-200 mx-1"></div>
-          <Button className="bg-kickstart-forest text-white gap-2 h-9 px-6 text-xs font-bold uppercase hover:bg-kickstart-forest/90" onClick={() => toast.success('Invoice Finalized & Saved')}>
-            Finalize Invoice
+          <Button
+            className="bg-kickstart-forest text-white gap-2 h-9 px-6 text-xs font-bold uppercase hover:bg-kickstart-forest/90"
+            onClick={() => void handleFinalizeInvoice()}
+            disabled={isSaving}
+          >
+            {isSaving ? 'Saving...' : 'Finalize Invoice'}
           </Button>
         </div>
       </div>

@@ -18,7 +18,7 @@ import {
   Flag,
   Award
 } from 'lucide-react';
-import { SPORTS as INITIAL_SPORTS } from '@/data/mockData';
+import { useSports } from '@/hooks/useData';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { Sport } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { createSport, updateSportStatus } from '@/lib/dataMutations';
 import {
   Dialog,
   DialogContent,
@@ -53,37 +54,54 @@ const icons: Record<string, any> = {
 
 export default function Sports() {
   const navigate = useNavigate();
-  const [sports, setSports] = React.useState<Sport[]>(
-    INITIAL_SPORTS.map(s => ({ ...s, status: s.status || 'active' }))
+  const { data: dbSports } = useSports();
+  const [sports, setSports] = React.useState<Sport[]>(() =>
+    dbSports.map(s => ({ ...s, status: s.status ?? 'active' }))
   );
+
+  React.useEffect(() => {
+    setSports(dbSports.map(s => ({ ...s, status: s.status ?? 'active' })));
+  }, [dbSports]);
   const [confirmDialogOpen, setConfirmDialogOpen] = React.useState(false);
   const [addDialogOpen, setAddDialogOpen] = React.useState(false);
   const [sportToToggle, setSportToToggle] = React.useState<Sport | null>(null);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isToggling, setIsToggling] = React.useState(false);
   
   const [newSportName, setNewSportName] = React.useState('');
   const [selectedIcon, setSelectedIcon] = React.useState('Trophy');
 
-  const handleAddSport = () => {
+  const handleAddSport = async () => {
     if (!newSportName.trim()) {
       toast.error('Please enter a sport name');
       return;
     }
 
-    const newSport: Sport = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: newSportName,
-      icon: selectedIcon,
-      studentsCount: 0,
-      packagesCount: 0,
-      revenue: 0,
-      status: 'active'
-    };
+    setIsSaving(true);
+    try {
+      const created = await createSport({ name: newSportName.trim() });
+      const newSport: Sport = {
+        id: created.id,
+        name: created.name,
+        icon: selectedIcon,
+        studentsCount: 0,
+        packagesCount: 0,
+        revenue: 0,
+        status: 'active'
+      };
 
-    setSports(prev => [newSport, ...prev]);
-    toast.success(`${newSportName} added to academy!`);
-    setAddDialogOpen(false);
-    setNewSportName('');
-    setSelectedIcon('Trophy');
+      setSports((prev) => [newSport, ...prev]);
+      toast.success(`${newSportName} added to academy!`);
+      setAddDialogOpen(false);
+      setNewSportName('');
+      setSelectedIcon('Trophy');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create sport.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleToggleClick = (sport: Sport) => {
@@ -95,17 +113,30 @@ export default function Sports() {
     }
   };
 
-  const toggleSportStatus = (id: string) => {
-    setSports(prev => prev.map(sport => {
-      if (sport.id === id) {
-        const newStatus = sport.status === 'inactive' ? 'active' : 'inactive';
-        toast.info(`${sport.name} ${newStatus === 'inactive' ? 'disabled' : 'enabled'} successfully`);
-        return { ...sport, status: newStatus };
-      }
-      return sport;
-    }));
-    setConfirmDialogOpen(false);
-    setSportToToggle(null);
+  const toggleSportStatus = async (id: string) => {
+    const nextSport = sports.find((sport) => sport.id === id);
+    if (!nextSport) return;
+
+    const nextStatus = nextSport.status === 'inactive' ? 'active' : 'inactive';
+    setIsToggling(true);
+    try {
+      await updateSportStatus(id, nextStatus === 'active' ? 'active' : 'inactive');
+      setSports((prev) => prev.map((sport) => {
+        if (sport.id === id) {
+          return { ...sport, status: nextStatus };
+        }
+        return sport;
+      }));
+      toast.info(`${nextSport.name} ${nextStatus === 'inactive' ? 'disabled' : 'enabled'} successfully`);
+      setConfirmDialogOpen(false);
+      setSportToToggle(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update sport status.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsToggling(false);
+    }
   };
 
   return (
@@ -162,7 +193,7 @@ export default function Sports() {
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setAddDialogOpen(false)} className="h-11 rounded-xl font-bold text-slate-500">Cancel</Button>
-              <Button onClick={handleAddSport} className="h-11 px-8 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200">Create Sport</Button>
+              <Button onClick={handleAddSport} className="h-11 px-8 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200" disabled={isSaving}>{isSaving ? 'Creating...' : 'Create Sport'}</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -320,11 +351,12 @@ export default function Sports() {
             >
               No, Keep Enabled
             </Button>
-            <Button 
-              onClick={() => sportToToggle && toggleSportStatus(sportToToggle.id)}
-              className="h-11 px-8 rounded-xl font-bold bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-100 transition-all active:scale-95"
-            >
-              Yes, Disable Sport
+              <Button 
+                onClick={() => sportToToggle && void toggleSportStatus(sportToToggle.id)}
+                disabled={isToggling}
+                className="h-11 px-8 rounded-xl font-bold bg-amber-600 hover:bg-amber-700 shadow-lg shadow-amber-100 transition-all active:scale-95"
+              >
+                {isToggling ? 'Updating...' : 'Yes, Disable Sport'}
             </Button>
           </DialogFooter>
         </DialogContent>

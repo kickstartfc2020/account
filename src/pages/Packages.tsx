@@ -13,7 +13,7 @@ import {
   Edit2,
   AlertCircle
 } from 'lucide-react';
-import { PACKAGES as INITIAL_PACKAGES, SPORTS } from '@/data/mockData';
+import { usePackages, useSports } from '@/hooks/useData';
 import { 
   Table, 
   TableBody, 
@@ -53,26 +53,97 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from '@/types';
 import { cn } from '@/lib/utils';
+import { createPackage, updatePackage, archivePackage } from '@/lib/dataMutations';
+import { normalizePackageDuration, type RecurringInterval } from '@/lib/packageDuration';
 
 export default function Packages() {
-  const [packages, setPackages] = React.useState<Package[]>(INITIAL_PACKAGES);
+  const { data: dbPackages } = usePackages();
+  const { data: sports } = useSports();
+  const [packages, setPackages] = React.useState<Package[]>(() => dbPackages);
+
+  React.useEffect(() => {
+    setPackages(dbPackages);
+  }, [dbPackages]);
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isArchiving, setIsArchiving] = React.useState(false);
   
   const [editingPackage, setEditingPackage] = React.useState<Package | null>(null);
   const [deletingPackage, setDeletingPackage] = React.useState<Package | null>(null);
-  
+  const [newSportId, setNewSportId] = React.useState('');
+  const [newRecurringInterval, setNewRecurringInterval] = React.useState<RecurringInterval>('month');
+  const [newRecurringCount, setNewRecurringCount] = React.useState('1');
+  const [editRecurringInterval, setEditRecurringInterval] = React.useState<RecurringInterval>('month');
+  const [editRecurringCount, setEditRecurringCount] = React.useState('1');
   const [packageType, setPackageType] = React.useState<"one-time" | "recurring">("one-time");
 
-  const handleCreate = (e: React.FormEvent) => {
+  const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    toast.success("Package created successfully!");
-    setIsAddOpen(false);
+    const formData = new FormData(e.currentTarget);
+    const name = String(formData.get('name') ?? '').trim();
+    const durationMonths = Number(formData.get('duration') ?? 0);
+    const amount = Number(formData.get('price') ?? 0);
+    const normalizedDurationMonths = normalizePackageDuration(
+      packageType,
+      durationMonths,
+      newRecurringInterval,
+      Number(newRecurringCount)
+    );
+
+    if (!name || !newSportId || !Number.isFinite(normalizedDurationMonths) || normalizedDurationMonths <= 0 || !Number.isFinite(amount) || amount < 0) {
+      toast.error('Please complete all required package fields.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const created = await createPackage({
+        sportId: newSportId,
+        name,
+        billingType: packageType,
+        durationMonths: normalizedDurationMonths,
+        amount,
+        gstPercent: 18,
+      });
+
+      const sport = sports.find((item) => item.id === newSportId);
+      setPackages((prev) => [
+        {
+          id: created.id,
+          name,
+          sportId: newSportId,
+          sportName: sport?.name ?? '',
+          billingType: packageType,
+          durationMonths: normalizedDurationMonths,
+          price: amount,
+          taxPercent: 18,
+          status: 'active',
+        },
+        ...prev,
+      ]);
+      toast.success('Package created successfully!');
+      setIsAddOpen(false);
+      setPackageType('one-time');
+      setNewSportId('');
+      setNewRecurringInterval('month');
+      setNewRecurringCount('1');
+      e.currentTarget.reset();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create package.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleEditClick = (pkg: Package) => {
     setEditingPackage({ ...pkg });
+    setPackageType(pkg.billingType);
+    setEditRecurringInterval('month');
+    setEditRecurringCount(pkg.billingType === 'recurring' ? String(pkg.durationMonths) : '1');
     setIsEditOpen(true);
   };
 
@@ -81,21 +152,62 @@ export default function Packages() {
     setIsDeleteOpen(true);
   };
 
-  const handleUpdate = (e: React.FormEvent) => {
+  const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (editingPackage) {
-      setPackages(prev => prev.map(p => p.id === editingPackage.id ? editingPackage : p));
+    if (!editingPackage) return;
+
+    const normalizedDurationMonths = editingPackage.billingType === 'recurring'
+      ? normalizePackageDuration(
+          editingPackage.billingType,
+          editingPackage.durationMonths,
+          editRecurringInterval,
+          Number(editRecurringCount)
+        )
+      : editingPackage.durationMonths;
+
+    setIsSaving(true);
+    try {
+      await updatePackage({
+        id: editingPackage.id,
+        sportId: editingPackage.sportId,
+        name: editingPackage.name,
+        billingType: editingPackage.billingType,
+        durationMonths: normalizedDurationMonths,
+        amount: editingPackage.price,
+        gstPercent: editingPackage.taxPercent,
+        status: editingPackage.status === 'active' ? 'active' : 'inactive',
+      });
+
+      setPackages((prev) => prev.map((pkg) => (pkg.id === editingPackage.id ? { ...editingPackage, durationMonths: normalizedDurationMonths } : pkg)));
       toast.success(`${editingPackage.name} updated successfully`);
       setIsEditOpen(false);
+      setEditRecurringInterval('month');
+      setEditRecurringCount('1');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update package.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const confirmDelete = () => {
-    if (deletingPackage) {
-      setPackages(prev => prev.filter(p => p.id !== deletingPackage.id));
-      toast.info(`${deletingPackage.name} removed from academy`);
+  const confirmDelete = async () => {
+    if (!deletingPackage) return;
+
+    setIsArchiving(true);
+    try {
+      await archivePackage(deletingPackage.id);
+      setPackages((prev) => prev.filter((pkg) => pkg.id !== deletingPackage.id));
+      toast.info(`${deletingPackage.name} archived successfully`);
       setIsDeleteOpen(false);
       setDeletingPackage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to archive package.';
+      console.error(error);
+      toast.error(message);
+    } finally {
+      setIsArchiving(false);
     }
   };
 
@@ -125,32 +237,32 @@ export default function Packages() {
               <div className="grid gap-6 py-6">
                 <div className="grid gap-2">
                   <Label htmlFor="name" className="text-xs font-bold uppercase text-slate-500">Package Name</Label>
-                  <Input id="name" placeholder="e.g. Badminton Gold Monthly" required />
+                  <Input id="name" name="name" placeholder="e.g. Badminton Gold Monthly" required />
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
                     <Label className="text-xs font-bold uppercase text-slate-500">Sport</Label>
-                    <Select required>
+                    <Select required value={newSportId} onValueChange={setNewSportId}>
                       <SelectTrigger className="h-11 rounded-xl">
                         <SelectValue placeholder="Select sport" />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
-                        {SPORTS.map(sport => (
+                        {sports.map(sport => (
                           <SelectItem key={sport.id} value={sport.id}>{sport.name}</SelectItem>
                         ))}
-                      </SelectContent>
-                    </Select>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="grid gap-2">
+                      <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
+                      <Input id="duration" name="duration" type="number" placeholder="1" defaultValue="1" min="1" className="h-11 rounded-xl" required />
+                    </div>
                   </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
-                    <Input id="duration" type="number" placeholder="1" defaultValue="1" min="1" className="h-11 rounded-xl" required />
-                  </div>
-                </div>
 
                 <div className="grid gap-2">
                   <Label htmlFor="price" className="text-xs font-bold uppercase text-slate-500">Price (₹)</Label>
-                  <Input id="price" type="number" placeholder="2000" className="h-11 rounded-xl" required />
+                    <Input id="price" name="price" type="number" placeholder="2000" className="h-11 rounded-xl" required />
                 </div>
 
                 <div className="grid gap-2">
@@ -174,7 +286,7 @@ export default function Packages() {
                     <div className="grid grid-cols-2 gap-4">
                       <div className="grid gap-2">
                         <Label className="text-[10px] font-bold uppercase text-indigo-600">Interval</Label>
-                        <Select defaultValue="month">
+                        <Select value={newRecurringInterval} onValueChange={(v) => setNewRecurringInterval(v as 'week' | 'month' | 'year')}>
                           <SelectTrigger className="bg-white">
                             <SelectValue />
                           </SelectTrigger>
@@ -187,7 +299,7 @@ export default function Packages() {
                       </div>
                       <div className="grid gap-2">
                         <Label className="text-[10px] font-bold uppercase text-indigo-600">Count</Label>
-                        <Input type="number" className="bg-white h-10" placeholder="1" min="1" required />
+                        <Input type="number" className="bg-white h-10" placeholder="1" min="1" value={newRecurringCount} onChange={(e) => setNewRecurringCount(e.target.value)} required />
                       </div>
                     </div>
                     <p className="text-[10px] text-indigo-400 mt-3 font-medium">
@@ -198,7 +310,7 @@ export default function Packages() {
               </div>
               <DialogFooter>
                 <Button type="button" variant="ghost" onClick={() => setIsAddOpen(false)} className="h-11 rounded-xl font-bold text-slate-500">Cancel</Button>
-                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 px-8 h-11 rounded-xl font-bold shadow-lg shadow-indigo-200">Create</Button>
+                <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 px-8 h-11 rounded-xl font-bold shadow-lg shadow-indigo-200" disabled={isSaving}>{isSaving ? 'Creating...' : 'Create'}</Button>
               </DialogFooter>
             </form>
           </DialogContent>
@@ -230,7 +342,10 @@ export default function Packages() {
           <TableBody>
             {packages.map((pkg) => (
               <TableRow key={pkg.id} className="group hover:bg-slate-50/50 transition-colors">
-                <TableCell className="font-bold text-slate-900 underline decoration-indigo-200 underline-offset-4">{pkg.name}</TableCell>
+                <TableCell>
+                  <p className="font-bold text-slate-900 underline decoration-indigo-200 underline-offset-4">{pkg.name}</p>
+                  {pkg.refId && <p className="text-[10px] text-slate-400 mt-0.5 font-mono">{pkg.refId}</p>}
+                </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <Badge variant="secondary" className="bg-indigo-50 text-indigo-700 border-none font-medium">
@@ -315,7 +430,7 @@ export default function Packages() {
                   <Select 
                     value={editingPackage?.sportId} 
                     onValueChange={(v) => {
-                      const sport = SPORTS.find(s => s.id === v);
+                      const sport = sports.find(s => s.id === v);
                       if (editingPackage && sport) {
                         setEditingPackage({...editingPackage, sportId: v, sportName: sport.name});
                       }
@@ -325,7 +440,7 @@ export default function Packages() {
                       <SelectValue placeholder="Select sport" />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl">
-                      {SPORTS.map(sport => (
+                      {sports.map(sport => (
                         <SelectItem key={sport.id} value={sport.id}>{sport.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -350,7 +465,7 @@ export default function Packages() {
                   id="edit-price" 
                   type="number" 
                   value={editingPackage?.price || ''} 
-                  onChange={(e) => editingPackage && setEditingPackage({...editingPackage, price: parseInt(e.target.value)})}
+                        onChange={(e) => editingPackage && setEditingPackage({...editingPackage, price: parseFloat(e.target.value) || 0})}
                   className="h-11 rounded-xl"
                   required 
                 />
@@ -359,8 +474,11 @@ export default function Packages() {
               <div className="grid gap-2">
                 <Label className="text-xs font-bold uppercase text-slate-500">Billing Type</Label>
                 <Select 
-                  defaultValue="one-time"
-                  onValueChange={(v) => setPackageType(v as any)}
+                  value={editingPackage?.billingType ?? packageType}
+                  onValueChange={(v) => {
+                    setPackageType(v as any);
+                    if (editingPackage) setEditingPackage({ ...editingPackage, billingType: v as 'one-time' | 'recurring' });
+                  }}
                 >
                   <SelectTrigger className="h-11 rounded-xl">
                     <SelectValue />
@@ -372,12 +490,12 @@ export default function Packages() {
                 </Select>
               </div>
 
-              {packageType === "recurring" && (
+              {(editingPackage?.billingType ?? packageType) === "recurring" && (
                 <div className="p-4 bg-indigo-50/50 rounded-xl border border-indigo-100/50 animate-in fade-in slide-in-from-top-2 duration-300">
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">
                       <Label className="text-[10px] font-bold uppercase text-indigo-600">Interval</Label>
-                      <Select defaultValue="month">
+                      <Select value={editRecurringInterval} onValueChange={(v) => setEditRecurringInterval(v as RecurringInterval)}>
                         <SelectTrigger className="bg-white rounded-lg h-9">
                           <SelectValue />
                         </SelectTrigger>
@@ -390,7 +508,7 @@ export default function Packages() {
                     </div>
                     <div className="grid gap-2">
                       <Label className="text-[10px] font-bold uppercase text-indigo-600">Count</Label>
-                      <Input type="number" className="bg-white h-9 rounded-lg" placeholder="1" min="1" />
+                      <Input type="number" className="bg-white h-9 rounded-lg" placeholder="1" min="1" value={editRecurringCount} onChange={(e) => setEditRecurringCount(e.target.value)} />
                     </div>
                   </div>
                   <p className="text-[10px] text-indigo-400 mt-3 font-medium">
@@ -417,7 +535,7 @@ export default function Packages() {
             </div>
             <DialogFooter className="gap-3">
               <Button type="button" variant="outline" onClick={() => setIsEditOpen(false)} className="h-11 rounded-xl font-bold text-slate-500">Cancel</Button>
-              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 px-8 h-11 rounded-xl font-bold shadow-lg shadow-indigo-200">Save Changes</Button>
+              <Button type="submit" className="bg-indigo-600 hover:bg-indigo-700 px-8 h-11 rounded-xl font-bold shadow-lg shadow-indigo-200" disabled={isSaving}>{isSaving ? 'Saving...' : 'Save Changes'}</Button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -427,10 +545,10 @@ export default function Packages() {
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[400px] rounded-2xl">
           <DialogHeader>
-            <DialogTitle className="text-xl font-display font-bold text-slate-900">Delete Package?</DialogTitle>
+              <DialogTitle className="text-xl font-display font-bold text-slate-900">Archive Package?</DialogTitle>
             <DialogDescription className="text-slate-500 pt-2">
-              Are you sure you want to permanently remove <span className="font-bold text-slate-900">{deletingPackage?.name}</span>? 
-              This action cannot be undone.
+              Are you sure you want to archive <span className="font-bold text-slate-900">{deletingPackage?.name}</span>? 
+              It will remain visible only as archived data.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 flex justify-center">
@@ -448,9 +566,10 @@ export default function Packages() {
               </Button>
               <Button 
                 onClick={confirmDelete}
+                disabled={isArchiving}
                 className="h-11 flex-1 rounded-xl font-bold bg-red-600 hover:bg-red-700 shadow-lg shadow-red-100 transition-all active:scale-95"
               >
-                Yes, Delete
+                {isArchiving ? 'Archiving...' : 'Yes, Archive'}
               </Button>
           </DialogFooter>
         </DialogContent>

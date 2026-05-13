@@ -21,7 +21,7 @@ import {
   CalendarDays
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { DASHBOARD_STATS, REVENUE_DATA, RENEWALS, STUDENTS, INVOICES } from '@/data/mockData';
+import { useStudents, useInvoices, useRenewals } from '@/hooks/useData';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -34,60 +34,23 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
-import { format, addMonths, isSameDay, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
+import { format } from 'date-fns';
 import { DateRange } from "react-day-picker";
+import { useDashboardAnalytics } from '@/hooks/useDashboardAnalytics';
 
 export default function Dashboard() {
+  const { data: allStudents = [] } = useStudents();
+  const { data: allInvoices = [] } = useInvoices();
+  const { data: allRenewals = [] } = useRenewals();
+
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
   const navigate = useNavigate();
-
-  // Filtered stats and data
-  const { stats, filteredStudents, filteredRenewals, filteredRevenueData } = React.useMemo(() => {
-    let filteredInvoices = INVOICES;
-    let students = STUDENTS;
-    let renewals = RENEWALS;
-    let revenueData = REVENUE_DATA;
-
-    if (dateRange?.from) {
-      const start = startOfDay(dateRange.from);
-      const end = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
-
-      filteredInvoices = INVOICES.filter(inv => {
-        const d = parseISO(inv.date);
-        return isWithinInterval(d, { start, end });
-      });
-
-      students = STUDENTS.filter(s => {
-        const d = parseISO(s.joinedAt);
-        return isWithinInterval(d, { start, end });
-      });
-
-      renewals = RENEWALS.filter(r => {
-        const d = parseISO(r.expiryDate);
-        return isWithinInterval(d, { start, end });
-      });
-
-      // Special handling for chart data - just a slice if it's a range, or random jitter for demo
-      // In a real app we'd aggregate invoices by month within the range
-    }
-
-    const totalRevenue = filteredInvoices.reduce((acc, inv) => acc + inv.total, 0);
-    const revenueVal = dateRange ? `₹${(totalRevenue / 1000).toFixed(1)}k` : DASHBOARD_STATS[0].value;
-
-    const computedStats = [
-      { label: 'Selected Revenue', value: revenueVal, trend: dateRange ? 'Based on selection' : DASHBOARD_STATS[0].trend },
-      { label: "Range Invoices", value: filteredInvoices.length.toString(), trend: dateRange ? 'Success' : DASHBOARD_STATS[1].trend },
-      { label: 'New Students', value: students.length.toString(), trend: dateRange ? 'Joined in range' : DASHBOARD_STATS[2].trend },
-      { label: 'Pending Renewals', value: renewals.length.toString(), trend: dateRange ? 'Expiring in range' : DASHBOARD_STATS[3].trend },
-    ];
-
-    return { 
-      stats: computedStats, 
-      filteredStudents: students, 
-      filteredRenewals: renewals,
-      filteredRevenueData: revenueData
-    };
-  }, [dateRange]);
+  const { stats, filteredStudents, filteredRenewals, filteredRevenueData } = useDashboardAnalytics({
+    dateRange,
+    allStudents,
+    allInvoices,
+    allRenewals,
+  });
 
   return (
     <div className="space-y-8 pb-10">
@@ -294,6 +257,7 @@ export default function Dashboard() {
                         "status-badge",
                         student.status === 'active' ? "bg-green-100 text-green-700" : 
                         student.status === 'expiring' ? "bg-amber-100 text-amber-700" : 
+                        student.status === 'unknown' ? "bg-slate-100 text-slate-600" :
                         "bg-red-100 text-red-700"
                       )}>
                         {student.status}

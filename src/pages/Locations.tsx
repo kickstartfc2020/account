@@ -9,13 +9,15 @@ import {
   MapPin,
   TrendingUp
 } from 'lucide-react';
-import { LOCATIONS } from '@/data/mockData';
+import { useLocations } from '@/hooks/useData';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'motion/react';
 
 export default function Locations() {
+  const { data: locations } = useLocations();
+
   return (
     <div className="space-y-8">
       <div className="flex justify-between items-end">
@@ -30,7 +32,7 @@ export default function Locations() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {LOCATIONS.map((loc, i) => (
+        {locations.map((loc, i) => (
           <motion.div
             key={loc.id}
             initial={{ opacity: 0, scale: 0.95 }}
@@ -51,9 +53,16 @@ export default function Locations() {
                   
                   <div>
                     <h3 className="text-xl font-display font-bold text-slate-900">{loc.name}</h3>
-                    <div className="flex items-center gap-1 text-slate-500 text-sm mt-1">
-                      <MapPin className="w-3 h-3" />
-                      {loc.address}
+                    <div className="flex items-center gap-2 mt-1">
+                      <div className="flex items-center gap-1 text-slate-500 text-sm">
+                        <MapPin className="w-3 h-3" />
+                        {loc.address}
+                      </div>
+                      {loc.refId && (
+                        <span className="text-[10px] font-mono font-semibold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">
+                          {loc.refId}
+                        </span>
+                      )}
                     </div>
                   </div>
 

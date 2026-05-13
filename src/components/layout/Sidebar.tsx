@@ -1,8 +1,7 @@
 import React from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  MapPin, 
   Trophy, 
   CreditCard, 
   Users, 
@@ -15,6 +14,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/auth/AuthProvider';
 
 const superAdminItems = [
   { icon: LayoutDashboard, label: 'Accounts Dashboard', path: '/super-admin' },
@@ -36,9 +36,11 @@ const branchAdminItems = [
 import { Building2 } from 'lucide-react';
 
 export function Sidebar() {
-  // Mocking role for now
-  const [role, setRole] = React.useState<'super_admin' | 'branch_admin'>('super_admin');
-  const navItems = role === 'super_admin' ? superAdminItems : branchAdminItems;
+  const { role, signOut } = useAuth();
+  const location = useLocation();
+  const isSuperAdmin = role === 'super_admin';
+  const navItems = isSuperAdmin ? superAdminItems : branchAdminItems;
+  const roleLabel = isSuperAdmin ? 'super admin' : 'branch admin';
 
   return (
     <div className="w-64 h-screen border-r bg-white flex flex-col sticky top-0 shrink-0">
@@ -50,7 +52,7 @@ export function Sidebar() {
           <div>
             <span className="font-display font-bold text-lg tracking-tight block leading-tight text-gray-900">Kickstart</span>
             <span className="text-[10px] uppercase font-bold text-indigo-600 tracking-widest">
-              {role.replace('_', ' ')}
+              {roleLabel}
             </span>
           </div>
         </div>
@@ -77,19 +79,15 @@ export function Sidebar() {
       </nav>
 
       <div className="p-4 border-t space-y-2">
-        <Button 
-          variant="outline" 
-          size="sm" 
-          className="w-full text-[10px] h-7 font-bold uppercase transition-all hover:bg-indigo-50 border-indigo-100 text-indigo-600"
-          onClick={() => setRole(role === 'super_admin' ? 'branch_admin' : 'super_admin')}
-        >
-          Switch to {role === 'super_admin' ? 'Branch' : 'Super'} View
-        </Button>
         <Button variant="ghost" className="w-full justify-start gap-3 text-slate-500 font-medium">
           <User className="w-5 h-5" />
           Profile
         </Button>
-        <Button variant="ghost" className="w-full justify-start gap-3 text-red-500 hover:text-red-600 hover:bg-red-50 font-medium">
+        <Button
+          variant="ghost"
+          className="w-full justify-start gap-3 text-red-500 hover:text-red-600 hover:bg-red-50 font-medium"
+          onClick={() => void signOut()}
+        >
           <LogOut className="w-5 h-5" />
           Logout
         </Button>

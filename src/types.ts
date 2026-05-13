@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export type StudentStatus = 'active' | 'expiring' | 'expired';
+export type StudentStatus = 'active' | 'expiring' | 'expired' | 'unknown';
 export type PaymentMode = 'cash' | 'card' | 'online' | 'upi';
 export type SubscriptionStatus = 'active' | 'expired';
 
 export interface Location {
   id: string;
+  refId: string;
   name: string;
   address: string;
   phone: string;
@@ -32,9 +33,11 @@ export interface Sport {
 
 export interface Package {
   id: string;
+  refId: string;
   name: string;
   sportId: string;
   sportName: string;
+  billingType: 'one-time' | 'recurring';
   durationMonths: number;
   price: number;
   taxPercent: number;
@@ -43,6 +46,7 @@ export interface Package {
 
 export interface Student {
   id: string;
+  refId: string;
   name: string;
   phone: string;
   email: string;
@@ -80,6 +84,7 @@ export interface GSTRate {
 
 export interface Renewal {
   id: string;
+  refId: string;
   studentId: string;
   studentName: string;
   sportName: string;
@@ -87,4 +92,5 @@ export interface Renewal {
   expiryDate: string;
   daysLeft: number;
   status: StudentStatus;
+  renewalStatus?: 'pending' | 'overdue' | 'completed' | 'cancelled';
 }

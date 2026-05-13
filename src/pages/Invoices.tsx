@@ -11,7 +11,7 @@ import {
   X,
   Plus
 } from 'lucide-react';
-import { INVOICES } from '@/data/mockData';
+import { useInvoices } from '@/hooks/useData';
 import { 
   Table, 
   TableBody, 
@@ -26,21 +26,40 @@ import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 
 export default function Invoices() {
+  const { data: invoices = [] } = useInvoices();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = React.useState(searchParams.get('id') || '');
 
   const filteredInvoices = React.useMemo(() => {
-    return INVOICES.filter(inv => 
+    return invoices.filter(inv => 
       inv.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
       inv.studentName.toLowerCase().includes(searchTerm.toLowerCase())
     );
-  }, [searchTerm]);
+  }, [searchTerm, invoices]);
 
   const clearSearch = () => {
     setSearchTerm('');
     setSearchParams({});
   };
+
+  const summaryStats = React.useMemo(() => {
+    const totalBilled = invoices.reduce((acc, inv) => acc + inv.total, 0);
+    const upiTotal = invoices
+      .filter((inv) => inv.paymentMode === 'upi' || inv.paymentMode === 'online')
+      .reduce((acc, inv) => acc + inv.total, 0);
+    const cashTotal = invoices
+      .filter((inv) => inv.paymentMode === 'cash' || inv.paymentMode === 'card')
+      .reduce((acc, inv) => acc + inv.total, 0);
+    const pendingEstimate = Math.max(0, totalBilled - (upiTotal + cashTotal));
+
+    return [
+      { label: 'Total Billed', value: `₹${(totalBilled / 100000).toFixed(2)}L`, color: 'indigo' },
+      { label: 'Received (UPI)', value: `₹${(upiTotal / 100000).toFixed(2)}L`, color: 'emerald' },
+      { label: 'Received (Cash/Card)', value: `₹${(cashTotal / 100000).toFixed(2)}L`, color: 'amber' },
+      { label: 'Pending Payment', value: `₹${(pendingEstimate / 100000).toFixed(2)}L`, color: 'red' },
+    ];
+  }, [invoices]);
 
   return (
     <div className="space-y-8">
@@ -54,7 +73,7 @@ export default function Invoices() {
             <Download className="w-4 h-4" />
             Export Data
           </Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700 gap-2">
+          <Button className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => navigate('/invoices/create')}>
             <Plus className="w-4 h-4" />
             Create Invoice
           </Button>
@@ -62,12 +81,7 @@ export default function Invoices() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: 'Total Billed', value: '₹12.45L', color: 'indigo' },
-          { label: 'Received (UPI)', value: '₹8.2L', color: 'emerald' },
-          { label: 'Received (Cash)', value: '₹3.1L', color: 'amber' },
-          { label: 'Pending Payment', value: '₹1.15L', color: 'red' },
-        ].map((stat, i) => (
+        {summaryStats.map((stat) => (
           <Card key={stat.label} className="glass-card">
             <CardContent className="p-4 flex items-center justify-between">
               <div>
