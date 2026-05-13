@@ -75,9 +75,9 @@ export function useDashboardAnalytics({
       : `₹${(overallRevenue / 100000).toFixed(1)}L`;
 
     const stats = [
-      { label: 'Total Revenue', value: revenueVal, trend: dateRange ? 'Based on selection' : '+12% from last month' },
-      { label: "Today's Invoices", value: filteredInvoices.length.toString(), trend: dateRange ? 'In range' : '4 pending payment' },
-      { label: 'Active Students', value: filteredStudents.length.toString(), trend: dateRange ? 'Joined in range' : '+15 new this week' },
+      { label: 'Total Revenue', value: revenueVal, trend: dateRange ? 'Based on selection' : 'All time' },
+      { label: "Today's Invoices", value: filteredInvoices.length.toString(), trend: dateRange ? 'In range' : 'Total invoices' },
+      { label: 'Active Students', value: filteredStudents.length.toString(), trend: dateRange ? 'Joined in range' : 'Total students' },
       { label: 'Pending Renewals', value: filteredRenewals.length.toString(), trend: dateRange ? 'Expiring in range' : 'Due within 7 days' },
     ];
 

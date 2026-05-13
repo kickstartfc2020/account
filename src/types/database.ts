@@ -115,6 +115,7 @@ export type Database = {
         Row: {
           id: string;
           organization_id: string;
+          branch_id: string | null;
           name: string;
           status: 'active' | 'inactive' | 'archived';
           archived_at: string | null;
@@ -124,6 +125,7 @@ export type Database = {
         Insert: {
           id?: string;
           organization_id: string;
+          branch_id?: string | null;
           name: string;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
@@ -133,6 +135,7 @@ export type Database = {
         Update: {
           id?: string;
           organization_id?: string;
+          branch_id?: string | null;
           name?: string;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
@@ -144,6 +147,7 @@ export type Database = {
         Row: {
           id: string;
           organization_id: string;
+          branch_id: string | null;
           sport_id: string;
           name: string;
           billing_type: 'one_time' | 'recurring_monthly';
@@ -158,6 +162,7 @@ export type Database = {
         Insert: {
           id?: string;
           organization_id: string;
+          branch_id?: string | null;
           sport_id: string;
           name: string;
           billing_type: 'one_time' | 'recurring_monthly';
@@ -172,6 +177,7 @@ export type Database = {
         Update: {
           id?: string;
           organization_id?: string;
+          branch_id?: string | null;
           sport_id?: string;
           name?: string;
           billing_type?: 'one_time' | 'recurring_monthly';

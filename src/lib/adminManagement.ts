@@ -76,7 +76,18 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
     throw new Error('Supabase is not configured.');
   }
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('You must be signed in to create a branch manager.');
+  }
+
   const { data, error } = await supabase.functions.invoke('admin-create-branch-manager', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
     body: {
       email: input.email.trim(),
       password: input.password,
@@ -85,8 +96,26 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
     },
   });
 
-  if (error || !data?.userId) {
-    throw error ?? new Error('Unable to create branch manager account.');
+  if (error) {
+    let message = error.message || 'Unable to create branch manager account.';
+
+    const maybeContext = (error as { context?: { json?: () => Promise<unknown> } }).context;
+    if (maybeContext?.json) {
+      try {
+        const payload = (await maybeContext.json()) as { message?: unknown };
+        if (payload?.message) {
+          message = String(payload.message);
+        }
+      } catch {
+        // Fall back to the default error message when the payload is not JSON.
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  if (!data?.userId) {
+    throw new Error('Unable to create branch manager account.');
   }
 
   const userId = String(data.userId);

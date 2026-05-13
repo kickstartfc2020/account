@@ -8,7 +8,7 @@ import {
   Share2,
   ReceiptText
 } from 'lucide-react';
-import { ACADEMY_DETAILS } from '@/data/mockData';
+import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { useInvoices, useStudents, useLocations } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -21,6 +21,7 @@ export default function ViewInvoice() {
   const { data: students } = useStudents();
   const { data: locations } = useLocations();
   
+  const academy = useAcademyDetails();
   const invoice = invoices.find(inv => inv.id === id);
   
   if (!invoice) {
@@ -106,17 +107,16 @@ export default function ViewInvoice() {
             <div className="flex justify-between items-start">
               <div className="flex items-center gap-5">
                 <div className="w-16 h-16 rounded-xl bg-[#1A3C34] flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-[#1A3C34]/20 shrink-0 border-2 border-[#FFD700]">
-                  {ACADEMY_DETAILS.logoText}
+                  {academy.logoText || '?'}
                 </div>
                 <div className="space-y-0.5">
-                  <h2 className="text-xl font-display font-black text-gray-900 uppercase tracking-tight leading-tight">{ACADEMY_DETAILS.name}</h2>
+                  <h2 className="text-xl font-display font-black text-gray-900 uppercase tracking-tight leading-tight">{academy.name}</h2>
                   <p className="text-[#1A3C34] font-bold text-xs leading-none flex items-center gap-1.5 uppercase tracking-wide">
                     <ReceiptText className="w-3.5 h-3.5 text-[#D4FF00]" />
                     {invoice.locationName} Branch
                   </p>
                   <div className="pt-1.5 flex flex-col gap-0.5">
-                    <p className="text-[10px] text-gray-500 max-w-[200px] leading-tight">{ACADEMY_DETAILS.address}</p>
-                    <p className="text-[10px] font-bold text-gray-700">Reg No: {ACADEMY_DETAILS.registrationNumber}</p>
+                    <p className="text-[10px] font-bold text-gray-700">{academy.code}</p>
                   </div>
                 </div>
               </div>
@@ -140,19 +140,19 @@ export default function ViewInvoice() {
             <div className="grid grid-cols-4 gap-4 p-6 bg-[#D4FF00]/5 rounded-2xl border border-[#D4FF00]/10">
               <div className="flex flex-col">
                 <span className="text-[9px] font-bold text-[#1A3C34]/50 uppercase tracking-widest">GST Number</span>
-                <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.gstNumber}</span>
+                <span className="text-xs font-bold text-gray-900">—</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[9px] font-bold text-[#1A3C34]/50 uppercase tracking-widest">PAN Number</span>
-                <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.panNumber}</span>
+                <span className="text-xs font-bold text-gray-900">—</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[9px] font-bold text-[#1A3C34]/50 uppercase tracking-widest">Contact</span>
-                <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.phone}</span>
+                <span className="text-xs font-bold text-gray-900">—</span>
               </div>
               <div className="flex flex-col">
                 <span className="text-[9px] font-bold text-[#1A3C34]/50 uppercase tracking-widest">Email</span>
-                <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.email}</span>
+                <span className="text-xs font-bold text-gray-900">—</span>
               </div>
             </div>
 
@@ -285,7 +285,7 @@ export default function ViewInvoice() {
           <div className="h-12 bg-[#1A3C34] flex items-center justify-between px-14 relative overflow-hidden">
              <div className="absolute top-0 right-0 w-24 h-full bg-[#D4FF00] skew-x-[30deg] translate-x-12 opacity-50" />
              <div className="absolute top-0 right-0 w-12 h-full bg-[#FFD700] skew-x-[30deg] translate-x-3 opacity-30" />
-             <p className="text-[8px] font-black text-[#D4FF00] uppercase tracking-[0.25em] z-10">{ACADEMY_DETAILS.footerText}</p>
+             <p className="text-[8px] font-black text-[#D4FF00] uppercase tracking-[0.25em] z-10">{academy.name}</p>
              <p className="text-[8px] font-black text-white uppercase tracking-[0.4em] z-10">{invoice.locationName} Branch</p>
           </div>
         </div>

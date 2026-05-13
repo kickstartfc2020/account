@@ -48,7 +48,7 @@ import {
   Receipt,
   CalendarDays
 } from 'lucide-react';
-import { useRenewals, usePackages, useStudents } from '@/hooks/useData';
+import { useRenewals, usePackages, useStudents, useInvoices } from '@/hooks/useData';
 import { format, addMonths, isSameDay, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -62,6 +62,12 @@ export default function Renewals() {
   const { data: renewalsData } = useRenewals();
   const { data: packagesData } = usePackages();
   const { data: studentsData } = useStudents();
+  const { data: allInvoices } = useInvoices();
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const expiringCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expiring').length, [renewalsData]);
+  const expiredCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expired').length, [renewalsData]);
+  const renewedTodayCount = React.useMemo(() => allInvoices.filter(inv => inv.date === todayStr).length, [allInvoices, todayStr]);
 
   const [selectedRenewal, setSelectedRenewal] = React.useState<any>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = React.useState(false);
@@ -184,7 +190,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-amber-600">Expiring in 7 Days</p>
-              <p className="text-2xl font-bold text-slate-900">8 Students</p>
+              <p className="text-2xl font-bold text-slate-900">{expiringCount} {expiringCount === 1 ? 'Student' : 'Students'}</p>
             </div>
           </CardContent>
         </Card>
@@ -195,7 +201,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-red-600">Expired Students</p>
-              <p className="text-2xl font-bold text-slate-900">4 Students</p>
+              <p className="text-2xl font-bold text-slate-900">{expiredCount} {expiredCount === 1 ? 'Student' : 'Students'}</p>
             </div>
           </CardContent>
         </Card>
@@ -206,7 +212,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-emerald-600">Renewed Today</p>
-              <p className="text-2xl font-bold text-slate-900">5 Renewals</p>
+              <p className="text-2xl font-bold text-slate-900">{renewedTodayCount} {renewedTodayCount === 1 ? 'Renewal' : 'Renewals'}</p>
             </div>
           </CardContent>
         </Card>
