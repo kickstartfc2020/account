@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { formatDateDMY } from '@/lib/utils';
 
 export default function Invoices() {
   const { data: invoices = [] } = useInvoices();
@@ -44,20 +45,21 @@ export default function Invoices() {
   };
 
   const summaryStats = React.useMemo(() => {
-    const totalBilled = invoices.reduce((acc, inv) => acc + inv.total, 0);
-    const upiTotal = invoices
+    const activeInvoices = invoices.filter((inv) => inv.status !== 'cancelled');
+    const totalBilled = activeInvoices.reduce((acc, inv) => acc + inv.total, 0);
+    const upiTotal = activeInvoices
       .filter((inv) => inv.paymentMode === 'upi' || inv.paymentMode === 'online')
       .reduce((acc, inv) => acc + inv.total, 0);
-    const cashTotal = invoices
+    const cashTotal = activeInvoices
       .filter((inv) => inv.paymentMode === 'cash' || inv.paymentMode === 'card')
       .reduce((acc, inv) => acc + inv.total, 0);
     const pendingEstimate = Math.max(0, totalBilled - (upiTotal + cashTotal));
 
     return [
-      { label: 'Total Billed', value: `₹${(totalBilled / 100000).toFixed(2)}L`, color: 'indigo' },
-      { label: 'Received (UPI)', value: `₹${(upiTotal / 100000).toFixed(2)}L`, color: 'emerald' },
-      { label: 'Received (Cash/Card)', value: `₹${(cashTotal / 100000).toFixed(2)}L`, color: 'amber' },
-      { label: 'Pending Payment', value: `₹${(pendingEstimate / 100000).toFixed(2)}L`, color: 'red' },
+      { label: 'Total Billed', value: `₹${Math.round(totalBilled).toLocaleString('en-IN')}`, color: 'indigo' },
+      { label: 'Received (UPI)', value: `₹${Math.round(upiTotal).toLocaleString('en-IN')}`, color: 'emerald' },
+      { label: 'Received (Cash/Card)', value: `₹${Math.round(cashTotal).toLocaleString('en-IN')}`, color: 'amber' },
+      { label: 'Pending Payment', value: `₹${Math.round(pendingEstimate).toLocaleString('en-IN')}`, color: 'red' },
     ];
   }, [invoices]);
 
@@ -144,7 +146,7 @@ export default function Invoices() {
                 onClick={() => navigate(`/invoices/view/${inv.id}`)}
               >
                 <TableCell className="font-bold text-slate-900">{inv.id}</TableCell>
-                <TableCell>{inv.date}</TableCell>
+                <TableCell>{formatDateDMY(inv.date)}</TableCell>
                 <TableCell className="font-medium text-indigo-700">{inv.studentName}</TableCell>
                 <TableCell className="text-slate-500 text-sm">{inv.locationName}</TableCell>
                 <TableCell>
@@ -157,7 +159,12 @@ export default function Invoices() {
                   </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100">Paid</Badge>
+                  <Badge
+                    variant="outline"
+                    className={inv.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}
+                  >
+                    {inv.status === 'cancelled' ? 'Cancelled' : 'Paid'}
+                  </Badge>
                 </TableCell>
                 <TableCell className="text-right">
                   <div className="flex justify-end gap-1">

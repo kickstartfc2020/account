@@ -1,6 +1,7 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { 
+  Building2,
   LayoutDashboard, 
   Trophy, 
   CreditCard, 
@@ -15,6 +16,9 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/auth/AuthProvider';
+import { useAcademyDetails } from '@/hooks/useAcademyDetails';
+import { useLocations } from '@/hooks/useData';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const superAdminItems = [
   { icon: LayoutDashboard, label: 'Accounts Dashboard', path: '/super-admin' },
@@ -33,24 +37,47 @@ const branchAdminItems = [
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
 
-import { Building2 } from 'lucide-react';
-
 export function Sidebar() {
   const { role, signOut } = useAuth();
   const location = useLocation();
+  const academy = useAcademyDetails();
+  const { data: locations } = useLocations();
+  const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const isSuperAdmin = role === 'super_admin';
   const navItems = isSuperAdmin ? superAdminItems : branchAdminItems;
   const roleLabel = isSuperAdmin ? 'super admin' : 'branch admin';
+
+  React.useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.rpc('current_branch_id').then(({ data }) => {
+      setCurrentBranchId((data as string | null) ?? null);
+    });
+  }, []);
+
+  const branchName =
+    locations.find((branch) => branch.id === currentBranchId)?.name ??
+    locations[0]?.name ??
+    'Branch';
+
+  const brandTitle = isSuperAdmin ? (academy.name || 'Kickstart') : branchName;
 
   return (
     <div className="w-64 h-screen border-r bg-white flex flex-col sticky top-0 shrink-0">
       <div className="p-6">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-xl">
-            K
-          </div>
+          {academy.logoUrl ? (
+            <img
+              src={academy.logoUrl}
+              alt="Organization logo"
+              className="h-12 w-12 object-contain"
+            />
+          ) : (
+            <div className="w-10 h-10 flex items-center justify-center text-indigo-600 font-bold text-xl">
+              {academy.logoText || 'K'}
+            </div>
+          )}
           <div>
-            <span className="font-display font-bold text-lg tracking-tight block leading-tight text-gray-900">Kickstart</span>
+            <span className="font-display font-bold text-lg tracking-tight block leading-tight text-gray-900">{brandTitle}</span>
             <span className="text-[10px] uppercase font-bold text-indigo-600 tracking-widest">
               {roleLabel}
             </span>

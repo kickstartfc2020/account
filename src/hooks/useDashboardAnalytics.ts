@@ -16,9 +16,14 @@ export function useDashboardAnalytics({
   allInvoices,
   allRenewals,
 }: UseDashboardAnalyticsParams) {
-  const overallRevenue = React.useMemo(
-    () => allInvoices.reduce((acc, inv) => acc + inv.total, 0),
+  const activeInvoices = React.useMemo(
+    () => allInvoices.filter((inv) => inv.status !== 'cancelled'),
     [allInvoices]
+  );
+
+  const overallRevenue = React.useMemo(
+    () => activeInvoices.reduce((acc, inv) => acc + inv.total, 0),
+    [activeInvoices]
   );
 
   const {
@@ -42,7 +47,7 @@ export function useDashboardAnalytics({
 
     let nextSelectedRevenue = 0;
 
-    for (const inv of allInvoices) {
+    for (const inv of activeInvoices) {
       if (!withinRange(inv.date)) continue;
 
       nextInvoices.push(inv);
@@ -67,12 +72,10 @@ export function useDashboardAnalytics({
       selectedRevenue: nextSelectedRevenue,
       monthRevenue: nextMonthRevenue,
     };
-  }, [dateRange, allInvoices, allRenewals, allStudents]);
+  }, [dateRange, activeInvoices, allRenewals, allStudents]);
 
   return React.useMemo(() => {
-    const revenueVal = dateRange
-      ? `₹${(selectedRevenue / 1000).toFixed(1)}k`
-      : `₹${(overallRevenue / 100000).toFixed(1)}L`;
+    const revenueVal = `₹${Math.round(dateRange ? selectedRevenue : overallRevenue).toLocaleString('en-IN')}`;
 
     const stats = [
       { label: 'Total Revenue', value: revenueVal, trend: dateRange ? 'Based on selection' : 'All time' },

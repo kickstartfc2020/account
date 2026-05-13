@@ -56,6 +56,7 @@ import { toast } from 'sonner';
 import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
 import type { Student } from '@/types';
+import { formatDateDMY } from '@/lib/utils';
 
 export default function Students() {
   const { data: students } = useStudents();
@@ -166,6 +167,12 @@ export default function Students() {
     setIsEditDialogOpen(true);
   };
 
+  const editAvailablePackages = React.useMemo(() => {
+    if (!editingStudent?.sportId) return packages;
+    const scoped = packages.filter((pkg) => pkg.sportId === editingStudent.sportId);
+    return scoped.length > 0 ? scoped : packages;
+  }, [editingStudent?.sportId, packages]);
+
   const handleUpdateStudent = async () => {
     if (!editingStudent) return;
 
@@ -213,6 +220,14 @@ export default function Students() {
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.phone.includes(searchTerm)
   );
+
+  const isStudentActiveNow = (student: Student) => {
+    const start = new Date(student.joinedAt);
+    const end = new Date(student.expiryDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+    const now = new Date();
+    return now >= start && now <= end;
+  };
 
   return (
     <div className="space-y-8">
@@ -439,17 +454,24 @@ export default function Students() {
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <p className="text-sm font-medium">{student.expiryDate}</p>
+                  <p className="text-sm font-medium">{formatDateDMY(student.expiryDate, 'N/A')}</p>
                 </TableCell>
                 <TableCell>
-                  <Badge className={
-                    student.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-100' :
-                    student.status === 'expiring' ? 'bg-amber-50 text-amber-700 border-amber-100' :
-                    student.status === 'unknown' ? 'bg-slate-50 text-slate-600 border-slate-100' :
-                    'bg-red-50 text-red-700 border-red-100'
-                  } variant="outline">
-                    {student.status.charAt(0).toUpperCase() + student.status.slice(1)}
+                  {(() => {
+                    const isActiveNow = isStudentActiveNow(student);
+                    return (
+                  <Badge
+                    className={
+                      isActiveNow
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                        : 'bg-slate-50 text-slate-600 border-slate-100'
+                    }
+                    variant="outline"
+                  >
+                    {isActiveNow ? 'Active' : 'Inactive'}
                   </Badge>
+                    );
+                  })()}
                 </TableCell>
                 <TableCell>
                    <DropdownMenu>
@@ -529,6 +551,32 @@ export default function Students() {
                     className="pl-10 h-11"
                   />
                 </div>
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label className="text-xs font-bold uppercase text-slate-500">Package</Label>
+                <Select
+                  value={editingStudent.packageId || ''}
+                  onValueChange={(value) => {
+                    const selected = packages.find((pkg) => pkg.id === value);
+                    setEditingStudent({
+                      ...editingStudent,
+                      packageId: value,
+                      packageName: selected?.name ?? editingStudent.packageName,
+                    });
+                  }}
+                >
+                  <SelectTrigger className="h-11">
+                    <SelectValue placeholder="Select package" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {editAvailablePackages.map((pkg) => (
+                      <SelectItem key={pkg.id} value={pkg.id}>
+                        {pkg.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           )}

@@ -57,6 +57,7 @@ import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { completeRenewal } from '@/lib/renewalWrite';
 import { computeBillingTotals } from '@/lib/billingMath';
+import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
 
 export default function Renewals() {
   const { data: renewalsData } = useRenewals();
@@ -67,7 +68,10 @@ export default function Renewals() {
   const todayStr = format(new Date(), 'yyyy-MM-dd');
   const expiringCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expiring').length, [renewalsData]);
   const expiredCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expired').length, [renewalsData]);
-  const renewedTodayCount = React.useMemo(() => allInvoices.filter(inv => inv.date === todayStr).length, [allInvoices, todayStr]);
+  const renewedTodayCount = React.useMemo(
+    () => allInvoices.filter((inv) => inv.date === todayStr && inv.status !== 'cancelled').length,
+    [allInvoices, todayStr]
+  );
 
   const [selectedRenewal, setSelectedRenewal] = React.useState<any>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = React.useState(false);
@@ -267,13 +271,7 @@ export default function Renewals() {
               >
                 <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
                 {dateRange?.from ? (
-                  dateRange.to ? (
-                    <>
-                      {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
-                    </>
-                  ) : (
-                    format(dateRange.from, "MMM dd, yyyy")
-                  )
+                  dateRange.to ? formatDateRangeDMY(dateRange.from, dateRange.to) : formatDateDMY(dateRange.from)
                 ) : (
                   <span>Expiry Date Range</span>
                 )}
@@ -364,7 +362,7 @@ export default function Renewals() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col">
-                    <span className="font-medium">{renewal.expiryDate}</span>
+                    <span className="font-medium">{formatDateDMY(renewal.expiryDate)}</span>
                     <span className={`text-[10px] font-bold uppercase ${renewal.daysLeft < 0 ? 'text-red-500' : 'text-amber-600'}`}>
                       {renewal.daysLeft < 0 ? `${Math.abs(renewal.daysLeft)} days ago` : `${renewal.daysLeft} days left`}
                     </span>
@@ -532,7 +530,7 @@ export default function Renewals() {
               <div className="text-right space-y-1">
                 <h1 className="text-4xl font-display font-black text-slate-100 uppercase tracking-widest">Invoice</h1>
                 <p className="text-sm font-semibold text-slate-900">#{generatedInvoiceNumber || '---'}</p>
-                <p className="text-xs text-slate-500">Date: {format(new Date(), 'MMM dd, yyyy')}</p>
+                <p className="text-xs text-slate-500">Date: {formatDateDMY(new Date())}</p>
               </div>
             </div>
 

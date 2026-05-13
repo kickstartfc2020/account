@@ -19,19 +19,38 @@ import {
 import { useLocations, usePackages } from '@/hooks/useData';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { getOrganizationDetails } from '@/lib/adminManagement';
+import { getOrganizationDetails, updateOrganizationDetails, uploadOrganizationLogo } from '@/lib/adminManagement';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { Trash2, Pencil, Check } from 'lucide-react';
+import type { GSTRate } from '@/types';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = React.useState('Organization');
   const { data: packages = [] } = usePackages();
   const { data: locations = [] } = useLocations();
   const [organization, setOrganization] = React.useState({
-    name: 'Kickstart Sports Academy',
-    code: 'KA/MYS/2024/0942',
-    gstNumber: 'Not available',
-    phone: 'Not available',
-    address: 'Not available',
+    name: '',
+    code: '',
+    logoUrl: '',
+    gstNumber: '',
+    panNumber: '',
+    phone: '',
+    email: '',
+    address: '',
   });
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = React.useState(false);
+  const logoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const [organizationId, setOrganizationId] = React.useState<string>('');
+  const [gstRates, setGstRates] = React.useState<GSTRate[]>([]);
+  const [isSavingGst, setIsSavingGst] = React.useState(false);
+  const [newGstName, setNewGstName] = React.useState('');
+  const [newGstPercentage, setNewGstPercentage] = React.useState('18');
+  const [newGstDefault, setNewGstDefault] = React.useState(false);
+  const [editingGstId, setEditingGstId] = React.useState<string | null>(null);
+  const [editGstName, setEditGstName] = React.useState('');
+  const [editGstPercentage, setEditGstPercentage] = React.useState('');
+  const [editGstDefault, setEditGstDefault] = React.useState(false);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -41,10 +60,14 @@ export default function Settings() {
         setOrganization({
           name: org.name,
           code: org.code,
-          gstNumber: (org as { gst_number?: string; gstNumber?: string }).gst_number || (org as { gstNumber?: string }).gstNumber || 'Not available',
-          phone: (org as { phone?: string }).phone || 'Not available',
-          address: (org as { address?: string }).address || 'Not available',
+          logoUrl: org.logo_url || '',
+          gstNumber: org.gst_number || '',
+          panNumber: org.pan_number || '',
+          phone: org.phone || '',
+          email: org.email || '',
+          address: org.address || '',
         });
+        setOrganizationId(org.id);
       })
       .catch(() => {
         // Keep fallback values for unauthenticated/dev states.
@@ -60,22 +83,232 @@ export default function Settings() {
 
     setOrganization((prev) => ({
       ...prev,
-      phone: prev.phone !== 'Not available' ? prev.phone : (primaryLocation.phone || 'Not available'),
-      address: prev.address !== 'Not available' ? prev.address : (primaryLocation.address || 'Not available'),
+      phone: prev.phone || primaryLocation.phone || '',
+      address: prev.address || primaryLocation.address || '',
     }));
   }, [locations]);
 
-  const gstRates = React.useMemo(() => {
-    const unique: number[] = Array.from(
-      new Set<number>(packages.map((p) => Number(p.taxPercent)))
-    ).sort((a: number, b: number) => a - b);
-    return unique.map((percent, idx) => ({
-      id: String(percent),
-      name: idx === 0 ? 'Standard GST' : `GST Slab ${idx + 1}`,
-      percentage: percent,
-      isDefault: idx === 0,
-    }));
-  }, [packages]);
+  const loadGstRates = React.useCallback(async () => {
+    if (!isSupabaseConfigured || !supabase || !organizationId) return;
+
+    const gstRatesTable = supabase.from('gst_rates') as any;
+    const { data, error } = await gstRatesTable
+      .select('*')
+      .eq('organization_id', organizationId)
+      .order('is_default', { ascending: false })
+      .order('percentage', { ascending: true });
+
+    if (error) {
+      toast.error(error.message || 'Failed to load GST rates.');
+      return;
+    }
+
+    const rows = (data ?? []) as any[];
+    setGstRates(
+      rows.map((rate) => ({
+        id: rate.id as string,
+        name: rate.name as string,
+        percentage: Number(rate.percentage),
+        isDefault: Boolean(rate.is_default),
+      }))
+    );
+  }, [organizationId]);
+
+  React.useEffect(() => {
+    void loadGstRates();
+  }, [loadGstRates]);
+
+  const onOrgFieldChange = (field: keyof typeof organization, value: string) => {
+    setOrganization((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveOrganization = async () => {
+    if (!organization.name.trim() || !organization.code.trim()) {
+      toast.error('Academy name and registration ID are required.');
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      await updateOrganizationDetails({
+        name: organization.name.trim(),
+        code: organization.code.trim(),
+        gstNumber: organization.gstNumber.trim(),
+        panNumber: organization.panNumber.trim(),
+        phone: organization.phone.trim(),
+        email: organization.email.trim(),
+        address: organization.address.trim(),
+      });
+      toast.success('Organization details saved.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to save organization details.';
+      toast.error(message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleLogoFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file.');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Logo size should be under 5MB.');
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    try {
+      const url = await uploadOrganizationLogo(file);
+      setOrganization((prev) => ({ ...prev, logoUrl: url }));
+      toast.success('Organization logo updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload organization logo.';
+      toast.error(message);
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const setDefaultGstRate = async (targetId: string) => {
+    if (!isSupabaseConfigured || !supabase || !organizationId) return;
+    setIsSavingGst(true);
+    try {
+      const gstRatesTable = supabase.from('gst_rates') as any;
+      const { error: clearError } = await gstRatesTable
+        .update({ is_default: false })
+        .eq('organization_id', organizationId);
+      if (clearError) throw clearError;
+
+      const { error: setError } = await gstRatesTable
+        .update({ is_default: true })
+        .eq('id', targetId)
+        .eq('organization_id', organizationId);
+      if (setError) throw setError;
+
+      await loadGstRates();
+      toast.success('Default GST rate updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to set default GST rate.';
+      toast.error(message);
+    } finally {
+      setIsSavingGst(false);
+    }
+  };
+
+  const handleAddGstRate = async () => {
+    if (!isSupabaseConfigured || !supabase || !organizationId) return;
+    const percentage = Number(newGstPercentage);
+    const name = newGstName.trim();
+    if (!name || !Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      toast.error('Enter a valid GST name and percentage between 0 and 100.');
+      return;
+    }
+
+    setIsSavingGst(true);
+    try {
+      const gstRatesTable = supabase.from('gst_rates') as any;
+      if (newGstDefault) {
+        const { error: clearError } = await gstRatesTable
+          .update({ is_default: false })
+          .eq('organization_id', organizationId);
+        if (clearError) throw clearError;
+      }
+
+      const { error } = await gstRatesTable.insert({
+        organization_id: organizationId,
+        name,
+        percentage,
+        is_default: newGstDefault,
+      });
+      if (error) throw error;
+
+      setNewGstName('');
+      setNewGstPercentage('18');
+      setNewGstDefault(false);
+      await loadGstRates();
+      toast.success('GST rate added.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to add GST rate.';
+      toast.error(message);
+    } finally {
+      setIsSavingGst(false);
+    }
+  };
+
+  const beginEditGst = (rate: GSTRate) => {
+    setEditingGstId(rate.id);
+    setEditGstName(rate.name);
+    setEditGstPercentage(String(rate.percentage));
+    setEditGstDefault(rate.isDefault);
+  };
+
+  const handleUpdateGstRate = async () => {
+    if (!isSupabaseConfigured || !supabase || !organizationId || !editingGstId) return;
+    const percentage = Number(editGstPercentage);
+    const name = editGstName.trim();
+    if (!name || !Number.isFinite(percentage) || percentage < 0 || percentage > 100) {
+      toast.error('Enter a valid GST name and percentage between 0 and 100.');
+      return;
+    }
+
+    setIsSavingGst(true);
+    try {
+      const gstRatesTable = supabase.from('gst_rates') as any;
+      if (editGstDefault) {
+        const { error: clearError } = await gstRatesTable
+          .update({ is_default: false })
+          .eq('organization_id', organizationId);
+        if (clearError) throw clearError;
+      }
+
+      const { error } = await gstRatesTable
+        .update({
+          name,
+          percentage,
+          is_default: editGstDefault,
+        })
+        .eq('id', editingGstId)
+        .eq('organization_id', organizationId);
+      if (error) throw error;
+
+      setEditingGstId(null);
+      await loadGstRates();
+      toast.success('GST rate updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update GST rate.';
+      toast.error(message);
+    } finally {
+      setIsSavingGst(false);
+    }
+  };
+
+  const handleDeleteGstRate = async (rate: GSTRate) => {
+    if (!isSupabaseConfigured || !supabase || !organizationId) return;
+    setIsSavingGst(true);
+    try {
+      const gstRatesTable = supabase.from('gst_rates') as any;
+      const { error } = await gstRatesTable
+        .delete()
+        .eq('id', rate.id)
+        .eq('organization_id', organizationId);
+      if (error) throw error;
+
+      await loadGstRates();
+      toast.success('GST rate deleted.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete GST rate.';
+      toast.error(message);
+    } finally {
+      setIsSavingGst(false);
+    }
+  };
 
   return (
     <div className="space-y-8 pb-10">
@@ -114,13 +347,18 @@ export default function Settings() {
                 </CardHeader>
                 <CardContent className="space-y-8">
                   <div className="flex items-center gap-6">
-                    <div className="w-24 h-24 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-4xl font-bold shadow-lg shadow-indigo-100">
-                      K
+                    <div className="w-24 h-24 rounded-2xl bg-indigo-600 overflow-hidden flex items-center justify-center text-white text-4xl font-bold shadow-lg shadow-indigo-100">
+                      {organization.logoUrl ? (
+                        <img src={organization.logoUrl} alt="Organization logo" className="w-full h-full object-cover" />
+                      ) : (
+                        (organization.name || 'K').charAt(0).toUpperCase()
+                      )}
                     </div>
                     <div className="space-y-2">
-                      <Button variant="outline" className="gap-2 h-9 text-xs">
+                      <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
+                      <Button variant="outline" className="gap-2 h-9 text-xs" onClick={() => logoInputRef.current?.click()} disabled={isUploadingLogo}>
                         <ImageIcon className="w-4 h-4" />
-                        Change Logo
+                        {isUploadingLogo ? 'Uploading...' : 'Change Logo'}
                       </Button>
                       <p className="text-[10px] text-slate-400">Recommended: Square image, minimum 400x400px.</p>
                     </div>
@@ -129,31 +367,42 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Academy Name</label>
-                      <Input value={organization.name} readOnly />
+                      <Input value={organization.name} onChange={(e) => onOrgFieldChange('name', e.target.value)} />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registration ID</label>
-                      <Input value={organization.code} readOnly />
+                      <Input value={organization.code} onChange={(e) => onOrgFieldChange('code', e.target.value)} />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">GST Number</label>
-                      <Input value={organization.gstNumber} readOnly />
+                      <Input value={organization.gstNumber} onChange={(e) => onOrgFieldChange('gstNumber', e.target.value)} placeholder="e.g. 29ABCDE1234F1Z5" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">PAN Number</label>
+                      <Input value={organization.panNumber} onChange={(e) => onOrgFieldChange('panNumber', e.target.value)} placeholder="e.g. ABCDE1234F" />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phone</label>
-                      <Input value={organization.phone} readOnly />
+                      <Input value={organization.phone} onChange={(e) => onOrgFieldChange('phone', e.target.value)} placeholder="e.g. +91 9876543210" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email</label>
+                      <Input value={organization.email} onChange={(e) => onOrgFieldChange('email', e.target.value)} placeholder="e.g. billing@academy.com" />
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Headquarters Address</label>
-                    <Input value={organization.address} readOnly />
+                    <Input value={organization.address} onChange={(e) => onOrgFieldChange('address', e.target.value)} placeholder="Enter full address" />
                   </div>
 
-                  <div className="pt-4 border-t">
+                  <div className="pt-4 border-t flex items-center justify-between">
                     <p className="text-xs text-slate-500">
-                      Organization profile values are synced from your configured database records.
+                      Organization profile values are stored in database and used in invoice templates.
                     </p>
+                    <Button onClick={() => void handleSaveOrganization()} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700">
+                      {isSaving ? 'Saving...' : 'Save Changes'}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -179,36 +428,81 @@ export default function Settings() {
             <Card className="glass-card">
               <CardHeader className="flex flex-row justify-between items-center">
                 <CardTitle className="text-lg font-display font-bold">GST Configuration</CardTitle>
-                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => toast.info('GST slabs are derived from package tax configuration.') }>
+                <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => setNewGstDefault(false)}>
                   <Plus className="w-4 h-4" />
-                  Manage via Packages
+                  Add GST Rate
                 </Button>
               </CardHeader>
               <CardContent className="space-y-6">
-                <p className="text-sm text-slate-500">Define the GST percentages used across your academy packages. Default rate is automatically applied to new packages.</p>
+                <p className="text-sm text-slate-500">Add, edit, delete, and set default GST rates for invoice generation.</p>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 border rounded-2xl bg-slate-50/50">
+                  <Input placeholder="Rate name (e.g. Standard GST)" value={newGstName} onChange={(e) => setNewGstName(e.target.value)} />
+                  <Input type="number" min="0" max="100" step="0.01" placeholder="Percentage" value={newGstPercentage} onChange={(e) => setNewGstPercentage(e.target.value)} />
+                  <label className="flex items-center gap-2 text-sm text-slate-600">
+                    <input type="checkbox" checked={newGstDefault} onChange={(e) => setNewGstDefault(e.target.checked)} />
+                    Set as default
+                  </label>
+                  <Button onClick={() => void handleAddGstRate()} disabled={isSavingGst} className="bg-indigo-600 hover:bg-indigo-700">
+                    Add
+                  </Button>
+                </div>
                 
                 <div className="space-y-3">
                   {gstRates.map((rate) => (
                     <div key={rate.id} className="group p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 hover:shadow-sm transition-all">
-                      <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
-                          {rate.percentage}%
+                      {editingGstId === rate.id ? (
+                        <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+                          <Input value={editGstName} onChange={(e) => setEditGstName(e.target.value)} />
+                          <Input type="number" min="0" max="100" step="0.01" value={editGstPercentage} onChange={(e) => setEditGstPercentage(e.target.value)} />
+                          <label className="flex items-center gap-2 text-sm text-slate-600">
+                            <input type="checkbox" checked={editGstDefault} onChange={(e) => setEditGstDefault(e.target.checked)} />
+                            Default
+                          </label>
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => void handleUpdateGstRate()} disabled={isSavingGst} className="bg-indigo-600 hover:bg-indigo-700">Save</Button>
+                            <Button size="sm" variant="outline" onClick={() => setEditingGstId(null)}>Cancel</Button>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-bold text-slate-900 flex items-center gap-2">
-                            {rate.name}
-                            {rate.isDefault && (
-                              <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] uppercase font-black px-2">Default</Badge>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-xl bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold text-sm">
+                              {rate.percentage}%
+                            </div>
+                            <div>
+                              <p className="font-bold text-slate-900 flex items-center gap-2">
+                                {rate.name}
+                                {rate.isDefault && (
+                                  <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-none text-[10px] uppercase font-black px-2">Default</Badge>
+                                )}
+                              </p>
+                              <p className="text-xs text-slate-400">Apply {rate.percentage}% tax to invoices</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
+                            {!rate.isDefault && (
+                              <Button size="sm" variant="outline" onClick={() => void setDefaultGstRate(rate.id)} disabled={isSavingGst}>
+                                <Check className="w-4 h-4 mr-1" />
+                                Default
+                              </Button>
                             )}
-                          </p>
-                          <p className="text-xs text-slate-400">Apply {rate.percentage}% tax to invoices</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <Badge variant="outline" className="text-[10px] uppercase">Synced from packages</Badge>
-                      </div>
+                            <Button size="sm" variant="outline" onClick={() => beginEditGst(rate)}>
+                              <Pencil className="w-4 h-4" />
+                            </Button>
+                            <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => void handleDeleteGstRate(rate)} disabled={isSavingGst}>
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
+                  {gstRates.length === 0 && (
+                    <div className="p-6 border border-dashed rounded-2xl text-sm text-slate-500 text-center">
+                      No GST rates configured yet. Add one to use it in invoices.
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-6 border-t">

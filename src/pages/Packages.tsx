@@ -245,11 +245,13 @@ export default function Packages() {
                     <Label className="text-xs font-bold uppercase text-slate-500">Sport</Label>
                     <Select required value={newSportId} onValueChange={setNewSportId}>
                       <SelectTrigger className="h-11 rounded-xl">
-                        <SelectValue placeholder="Select sport" />
+                        <SelectValue placeholder="Select sport">
+                          {sports.find((sport) => sport.id === newSportId)?.name ?? ''}
+                        </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
                         {sports.map(sport => (
-                          <SelectItem key={sport.id} value={sport.id}>{sport.name}</SelectItem>
+                          <SelectItem key={sport.id} value={sport.id} label={sport.name}>{sport.name}</SelectItem>
                         ))}
                         </SelectContent>
                       </Select>
@@ -437,11 +439,13 @@ export default function Packages() {
                     }}
                   >
                     <SelectTrigger className="h-11 rounded-xl">
-                      <SelectValue placeholder="Select sport" />
+                      <SelectValue placeholder="Select sport">
+                        {sports.find((sport) => sport.id === editingPackage?.sportId)?.name ?? ''}
+                      </SelectValue>
                     </SelectTrigger>
                     <SelectContent className="rounded-xl">
                       {sports.map(sport => (
-                        <SelectItem key={sport.id} value={sport.id}>{sport.name}</SelectItem>
+                        <SelectItem key={sport.id} value={sport.id} label={sport.name}>{sport.name}</SelectItem>
                       ))}
                     </SelectContent>
                   </Select>

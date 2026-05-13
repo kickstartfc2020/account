@@ -105,8 +105,16 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     throw error ?? new Error('Failed to create invoice.');
   }
 
+  const row = Array.isArray(data) ? data[0] : data;
+  const invoiceId = (row as any)?.invoice_id as string | undefined;
+  const invoiceNumber = (row as any)?.invoice_number as string | undefined;
+
+  if (!invoiceId || !invoiceNumber) {
+    throw new Error('Failed to resolve generated invoice number from server response.');
+  }
+
   return {
-    invoiceId: (data as any).invoice_id as string,
-    invoiceNumber: (data as any).invoice_number as string,
+    invoiceId,
+    invoiceNumber,
   };
 }

@@ -9,7 +9,7 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Toaster } from '@/components/ui/sonner';
@@ -36,12 +36,17 @@ import CreateInvoice from './pages/CreateInvoice';
 import ViewInvoice from './pages/ViewInvoice';
 
 function AppLayout() {
+  const location = useLocation();
+  const isGeneratedInvoiceView =
+    location.pathname.startsWith('/invoices/view/') &&
+    new URLSearchParams(location.search).get('generated') === '1';
+
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
+      {!isGeneratedInvoiceView && <Sidebar />}
       <div className="flex-1 flex flex-col min-w-0">
-        <Header />
-        <main className="flex-1 overflow-y-auto px-8 py-8">
+        {!isGeneratedInvoiceView && <Header />}
+        <main className={isGeneratedInvoiceView ? 'flex-1 overflow-y-auto p-0' : 'flex-1 overflow-y-auto px-8 py-8'}>
           <Routes>
             <Route element={<ProtectedRoute allowedRoles={['organization_admin', 'branch_manager']} />}>
               <Route path="/" element={<Dashboard />} />

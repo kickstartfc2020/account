@@ -64,8 +64,8 @@ export const STUDENTS: Student[] = [
 ];
 
 export const INVOICES: Invoice[] = [
-  { id: 'INV-001', studentId: 'st1', studentName: 'Rahul Sharma', amount: 2000, tax: 360, total: 2360, paymentMode: 'upi', date: '2025-04-12', locationId: '1', locationName: 'Mysore Main', packageName: 'Monthly Basic' },
-  { id: 'INV-002', studentId: 'st2', studentName: 'Priya Singh', amount: 3000, tax: 540, total: 3540, paymentMode: 'card', date: '2025-05-01', locationId: '1', locationName: 'Mysore Main', packageName: 'Summer Camp' },
+  { id: 'INV-001', studentId: 'st1', studentName: 'Rahul Sharma', amount: 2000, tax: 360, total: 2360, status: 'completed', balanceAmount: 0, paymentMode: 'upi', date: '2025-04-12', locationId: '1', locationName: 'Mysore Main', packageName: 'Monthly Basic' },
+  { id: 'INV-002', studentId: 'st2', studentName: 'Priya Singh', amount: 3000, tax: 540, total: 3540, status: 'completed', balanceAmount: 0, paymentMode: 'card', date: '2025-05-01', locationId: '1', locationName: 'Mysore Main', packageName: 'Summer Camp' },
 ];
 
 export const RENEWALS: Renewal[] = [

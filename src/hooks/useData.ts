@@ -1,12 +1,21 @@
 import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus } from '@/types';
+import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
 
-function computeStudentStatus(expiryDate: string | null | undefined): StudentStatus {
-  if (!expiryDate) return 'unknown';
+function computeStudentStatus(
+  expiryDate: string | null | undefined,
+  joinedAt: string | null | undefined
+): StudentStatus {
+  if (!expiryDate || !joinedAt) return 'unknown';
   try {
-    const days = differenceInDays(parseISO(expiryDate), new Date());
+    const now = new Date();
+    const start = parseISO(joinedAt);
+    const end = parseISO(expiryDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return 'unknown';
+    if (now < start) return 'unknown';
+
+    const days = differenceInDays(end, now);
     if (days < 0) return 'expired';
     if (days <= 30) return 'expiring';
     return 'active';
@@ -53,6 +62,38 @@ export function useLocations() {
             revenue: 0,
             image: (b.image ?? undefined) as string | undefined,
             region: (b.region ?? undefined) as string | undefined,
+          }))
+        );
+      });
+  }, []);
+
+  return { data, loading };
+}
+
+// ── GST Rates ────────────────────────────────────────────────────────────────
+
+export function useGstRates() {
+  const [data, setData] = useState<GSTRate[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setLoading(true);
+    supabase
+      .from('gst_rates')
+      .select('*')
+      .order('is_default', { ascending: false })
+      .order('percentage', { ascending: true })
+      .then(({ data: rows, error }) => {
+        setLoading(false);
+        if (error) return;
+        const r = (rows ?? []) as any[];
+        setData(
+          r.map((rate) => ({
+            id: rate.id as string,
+            name: rate.name as string,
+            percentage: Number(rate.percentage),
+            isDefault: Boolean(rate.is_default),
           }))
         );
       });
@@ -121,7 +162,7 @@ export function useLocations() {
               name: p.name as string,
               sportId: p.sport_id as string,
               sportName: (p.sports as { name: string } | null)?.name ?? '',
-              billingType: (p.billing_type === 'recurring' ? 'recurring' : 'one-time') as 'one-time' | 'recurring',
+              billingType: (p.billing_type === 'recurring_monthly' ? 'recurring' : 'one-time') as 'one-time' | 'recurring',
               durationMonths: p.duration_months as number,
               price: p.amount as number,
               taxPercent: p.gst_percent as number,
@@ -184,7 +225,7 @@ export function useStudents() {
                 packageId: (s.current_package_id ?? '') as string,
                 packageName: pkg?.name ?? '',
                 expiryDate: expiryDate ?? '',
-                status: computeStudentStatus(expiryDate),
+                status: computeStudentStatus(expiryDate, s.joined_at as string | null | undefined),
                 joinedAt: s.joined_at as string,
               };
             })
@@ -207,7 +248,7 @@ export function useInvoices() {
     supabase
       .from('invoices')
       .select(
-          `*, students(name),
+          `*, students(name, ref_id),
          branches(name),
          payments(method, status),
          invoice_items(description)`
@@ -220,7 +261,7 @@ export function useInvoices() {
           const r = (rows ?? []) as any[];
           setData(
             r.map((inv) => {
-              const student = inv.students as { name: string } | null;
+              const student = inv.students as { name: string; ref_id: string | null } | null;
               const branch = inv.branches as { name: string } | null;
               const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
               const items = (inv.invoice_items as Array<{ description: string }>) ?? [];
@@ -228,10 +269,13 @@ export function useInvoices() {
               return {
                 id: inv.invoice_number as string,
                 studentId: inv.student_id as string,
+                studentRefId: student?.ref_id ?? undefined,
                 studentName: student?.name ?? '',
                 amount: inv.subtotal as number,
                 tax: inv.tax_total as number,
                 total: inv.total_amount as number,
+                status: (inv.status as Invoice['status']) ?? 'unpaid',
+                balanceAmount: (inv.balance_amount as number) ?? 0,
                 paymentMode: (completedPayment?.method ?? 'cash') as Invoice['paymentMode'],
                 date: inv.invoice_date as string,
                 locationId: inv.branch_id as string,

@@ -38,9 +38,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    const { data } = await supabase.rpc('current_role');
+    const { data, error } = await supabase.rpc('current_role');
+    let resolvedRole = (data ?? null) as AppRole | null;
+
+    if ((!resolvedRole || error) && nextSession.user?.id) {
+      const { data: profileRow } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', nextSession.user.id)
+        .maybeSingle();
+
+      resolvedRole = ((profileRow as { role?: AppRole } | null)?.role ?? null) as AppRole | null;
+    }
+
     if (!isMountedRef.current || requestSeq !== roleRequestSeqRef.current) return;
-    setRole((data ?? null) as AppRole | null);
+    setRole(resolvedRole);
   }, []);
 
   const signOut = React.useCallback(async () => {

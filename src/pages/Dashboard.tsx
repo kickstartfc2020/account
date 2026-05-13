@@ -34,9 +34,9 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
-import { format } from 'date-fns';
 import { DateRange } from "react-day-picker";
 import { useDashboardAnalytics } from '@/hooks/useDashboardAnalytics';
+import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
 
 export default function Dashboard() {
   const { data: allStudents = [] } = useStudents();
@@ -51,6 +51,14 @@ export default function Dashboard() {
     allInvoices,
     allRenewals,
   });
+
+  const isStudentActiveNow = (joinedAt: string, expiryDate: string) => {
+    const start = new Date(joinedAt);
+    const end = new Date(expiryDate);
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
+    const now = new Date();
+    return now >= start && now <= end;
+  };
 
   return (
     <div className="space-y-8 pb-10">
@@ -72,13 +80,7 @@ export default function Dashboard() {
               >
                 <CalendarDays className="mr-2.5 h-4 w-4 text-indigo-500" />
                 {dateRange?.from ? (
-                  dateRange.to ? (
-                    <>
-                      {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
-                    </>
-                  ) : (
-                    format(dateRange.from, "MMM dd, yyyy")
-                  )
+                  dateRange.to ? formatDateRangeDMY(dateRange.from, dateRange.to) : formatDateDMY(dateRange.from)
                 ) : (
                   <span>Filter by Dates Overview</span>
                 )}
@@ -163,7 +165,7 @@ export default function Dashboard() {
                     axisLine={false} 
                     tickLine={false} 
                     tick={{ fill: '#94a3b8', fontSize: 12 }}
-                    tickFormatter={(val) => `₹${val/1000}k`}
+                    tickFormatter={(val) => `₹${Math.round(val).toLocaleString('en-IN')}`}
                   />
                   <Tooltip 
                     contentStyle={{ 
@@ -253,15 +255,19 @@ export default function Dashboard() {
                     <TableCell>{student.sportName}</TableCell>
                     <TableCell className="text-gray-500">{student.packageName}</TableCell>
                     <TableCell>
+                      {(() => {
+                        const isActiveNow = isStudentActiveNow(student.joinedAt, student.expiryDate);
+                        return (
                       <Badge className={cn(
                         "status-badge",
-                        student.status === 'active' ? "bg-green-100 text-green-700" : 
-                        student.status === 'expiring' ? "bg-amber-100 text-amber-700" : 
-                        student.status === 'unknown' ? "bg-slate-100 text-slate-600" :
-                        "bg-red-100 text-red-700"
+                        isActiveNow
+                          ? "bg-green-100 text-green-700"
+                          : "bg-slate-100 text-slate-600"
                       )}>
-                        {student.status}
+                        {isActiveNow ? 'active' : 'inactive'}
                       </Badge>
+                        );
+                      })()}
                     </TableCell>
                   </TableRow>
                 ))}
