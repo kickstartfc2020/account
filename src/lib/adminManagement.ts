@@ -76,18 +76,20 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
     throw new Error('Supabase is not configured.');
   }
 
-  const { data, error } = await (supabase as any).rpc('admin_create_branch_manager', {
-    p_email: input.email.trim(),
-    p_password: input.password,
-    p_full_name: input.fullName ?? null,
-    p_branch_id: input.branchId,
+  const { data, error } = await supabase.functions.invoke('admin-create-branch-manager', {
+    body: {
+      email: input.email.trim(),
+      password: input.password,
+      fullName: input.fullName ?? null,
+      branchId: input.branchId,
+    },
   });
 
-  if (error || !data) {
+  if (error || !data?.userId) {
     throw error ?? new Error('Unable to create branch manager account.');
   }
 
-  const userId = data as string;
+  const userId = String(data.userId);
 
   return { userId };
 }
