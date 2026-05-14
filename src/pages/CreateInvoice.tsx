@@ -86,13 +86,6 @@ export default function CreateInvoice() {
 
   const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
 
-  React.useEffect(() => {
-    if (selectedStudent) {
-      const pkg = packages.find((p) => p.id === selectedStudent.packageId) || packages.find((p) => p.sportId === activeSportId);
-      if (pkg) setAmount(pkg.price.toString());
-    }
-  }, [selectedStudentId, activeSportId, selectedStudent, packages]);
-  
   const filteredStudents = students.filter(s => 
     s.sportId === activeSportId && 
     (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm))
@@ -106,8 +99,25 @@ export default function CreateInvoice() {
     null;
   const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) || packages.find((p) => p.sportId === activeSportId);
   const packageMaxAmount = studentPackage?.price ?? null;
-  const hasActivePaidInvoice = studentPayments.some(inv => inv.status !== 'cancelled');
-  const amountExceedsPackage = packageMaxAmount !== null && parseFloat(amount || '0') > packageMaxAmount;
+  const activeStudentInvoices = studentPayments.filter((inv) => inv.status !== 'cancelled');
+  const outstandingBalanceAmount = activeStudentInvoices.reduce((sum, inv) => sum + Math.max(0, inv.balanceAmount ?? 0), 0);
+  const hasFullyPaidInvoice = activeStudentInvoices.some((inv) => (inv.balanceAmount ?? 0) <= 0);
+  const allowedBaseAmount = React.useMemo(() => {
+    if (!studentPackage) return 0;
+    if (hasFullyPaidInvoice) return 0;
+    if (outstandingBalanceAmount > 0) {
+      return Math.min(outstandingBalanceAmount, studentPackage.price);
+    }
+    return studentPackage.price;
+  }, [hasFullyPaidInvoice, outstandingBalanceAmount, studentPackage]);
+  const amountExceedsAllowedAmount = parseFloat(amount || '0') > allowedBaseAmount;
+
+  React.useEffect(() => {
+    if (selectedStudent) {
+      setAmount(allowedBaseAmount.toString());
+    }
+  }, [selectedStudentId, allowedBaseAmount, selectedStudent]);
+
   const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
     useInvoiceCalculator({
       amount,
@@ -146,13 +156,13 @@ export default function CreateInvoice() {
       return;
     }
 
-    if (hasActivePaidInvoice) {
-      toast.error('This student already has an active invoice. Cannot create duplicate invoices.');
+    if (hasFullyPaidInvoice) {
+      toast.error('This student has already paid for their package. The base amount is locked at ₹0.');
       return;
     }
 
-    if (amountExceedsPackage) {
-      toast.error(`Amount cannot exceed the package price of ₹${packageMaxAmount?.toLocaleString()}.`);
+    if (amountExceedsAllowedAmount) {
+      toast.error(`Amount cannot exceed the available payable amount of ₹${allowedBaseAmount.toLocaleString()}.`);
       return;
     }
 
@@ -254,8 +264,8 @@ export default function CreateInvoice() {
           <Button
             className="bg-kickstart-forest text-white gap-2 h-9 px-6 text-xs font-bold uppercase hover:bg-kickstart-forest/90"
             onClick={() => void handleFinalizeInvoice()}
-            disabled={isSaving || hasActivePaidInvoice || amountExceedsPackage}
-            title={hasActivePaidInvoice ? 'Student already has an active invoice' : amountExceedsPackage ? `Amount exceeds package price of ₹${packageMaxAmount?.toLocaleString()}` : undefined}
+            disabled={isSaving || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0}
+            title={hasFullyPaidInvoice ? 'Student has already paid for this package' : amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
           >
             {isSaving ? 'Saving...' : 'Finalize Invoice'}
           </Button>
@@ -338,22 +348,25 @@ export default function CreateInvoice() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">
-                    Base Amount (₹){packageMaxAmount !== null && <span className="ml-1 text-gray-400 normal-case">max ₹{packageMaxAmount.toLocaleString()}</span>}
+                    Base Amount (₹){selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
                   </label>
                   <Input 
                     type="number" 
                     value={amount}
-                    max={packageMaxAmount ?? undefined}
+                    max={allowedBaseAmount}
+                    disabled={Boolean(selectedStudent) && allowedBaseAmount === 0}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
-                      if (packageMaxAmount !== null && !isNaN(val) && val > packageMaxAmount) {
-                        setAmount(packageMaxAmount.toString());
+                      if (allowedBaseAmount === 0) {
+                        setAmount('0');
+                      } else if (!isNaN(val) && val > allowedBaseAmount) {
+                        setAmount(allowedBaseAmount.toString());
                       } else {
                         setAmount(e.target.value);
                       }
                       setIsGenerated(false);
                     }}
-                    className={cn("bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime", amountExceedsPackage && "border-red-400 focus:ring-red-400")}
+                    className={cn("bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime", amountExceedsAllowedAmount && "border-red-400 focus:ring-red-400")}
                   />
                 </div>
                 <div className="space-y-2">
@@ -421,8 +434,8 @@ export default function CreateInvoice() {
               <Button 
                 className="w-full bg-kickstart-forest hover:bg-kickstart-forest/90 shadow-lg shadow-kickstart-forest/10 h-12 font-bold text-xs uppercase tracking-wider"
                 onClick={() => void handleFinalizeInvoice()}
-                disabled={isSaving || hasActivePaidInvoice || amountExceedsPackage}
-                title={hasActivePaidInvoice ? 'Student already has an active invoice' : amountExceedsPackage ? `Amount exceeds package price of ₹${packageMaxAmount?.toLocaleString()}` : undefined}
+                disabled={isSaving || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0}
+                title={hasFullyPaidInvoice ? 'Student has already paid for this package' : amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
               >
                 {isSaving ? 'Saving...' : isGenerated ? 'Regenerate Invoice' : 'Generate Invoice'}
               </Button>
@@ -435,15 +448,23 @@ export default function CreateInvoice() {
             <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="h-[1px] bg-gray-100"></div>
 
-              {hasActivePaidInvoice && (
+              {hasFullyPaidInvoice ? (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
                   <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
                   <div>
                     <p className="text-xs font-bold text-amber-800">Invoice Already Exists</p>
-                    <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their package. A new invoice cannot be created until the existing one is cancelled.</p>
+                    <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their package. The base amount is locked at zero.</p>
                   </div>
                 </div>
-              )}
+              ) : outstandingBalanceAmount > 0 ? (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
+                  <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>
+                  <div>
+                    <p className="text-xs font-bold text-emerald-800">Remaining Balance Available</p>
+                    <p className="text-[10px] text-emerald-700 mt-0.5">This student still has ₹{outstandingBalanceAmount.toLocaleString()} payable. The base amount cannot exceed that value.</p>
+                  </div>
+                </div>
+              ) : null}
               
               <div className="space-y-4">
                 <h3 className="text-[10px] font-bold uppercase tracking-widest text-gray-400">Current Standing</h3>
