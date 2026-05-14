@@ -43,7 +43,7 @@ export function useLocations() {
     setLoading(true);
     supabase
       .from('branches')
-        .select('id, ref_id, name, address, phone, email, image, region')
+        .select('id, ref_id, name, address, phone, email, image')
       .is('archived_at', null)
       .order('name')
       .then(({ data: rows, error }) => {
@@ -65,7 +65,7 @@ export function useLocations() {
             activeSports: [],
             revenue: 0,
             image: (b.image ?? undefined) as string | undefined,
-            region: (b.region ?? undefined) as string | undefined,
+            region: undefined,
           }))
         );
       });

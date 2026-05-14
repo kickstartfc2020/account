@@ -40,7 +40,7 @@ async function resolveOrganizationId() {
     .is('archived_at', null)
     .order('created_at', { ascending: true })
     .limit(1)
-    .single();
+    .maybeSingle();
 
   if (error || !data?.id) {
     throw error ?? new Error('Unable to resolve organization context.');
@@ -206,10 +206,14 @@ export async function getOrganizationDetails() {
   const { data, error } = await organizationsTable
     .select('*')
     .eq('id', organizationId)
-    .single();
+    .maybeSingle();
 
-  if (error || !data) {
-    throw error ?? new Error('Failed to load organization.');
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return null;
   }
 
   return data as {
