@@ -24,6 +24,42 @@ type OrganizationUpdateInput = {
   address?: string;
 };
 
+type ProfileContext = {
+  role: string | null;
+  organizationId: string | null;
+  branchId: string | null;
+};
+
+async function resolveProfileContext(): Promise<ProfileContext> {
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user?.id) {
+    return { role: null, organizationId: null, branchId: null };
+  }
+
+  const profilesTable = supabase.from('profiles') as any;
+  const { data: profileRow } = await profilesTable
+    .select('role, organization_id, branch_id')
+    .eq('id', user.id)
+    .maybeSingle();
+
+  const profile = (profileRow ?? null) as {
+    role?: string | null;
+    organization_id?: string | null;
+    branch_id?: string | null;
+  } | null;
+
+  return {
+    role: profile?.role ?? null,
+    organizationId: profile?.organization_id ?? null,
+    branchId: profile?.branch_id ?? null,
+  };
+}
+
 async function resolveOrganizationId() {
   if (!supabase) throw new Error('Supabase is not configured.');
 
@@ -34,6 +70,24 @@ async function resolveOrganizationId() {
     // Fallback query below.
   }
 
+  const { role: profileRole, organizationId: profileOrganizationId, branchId: profileBranchId } = await resolveProfileContext();
+  if (profileOrganizationId) {
+    return profileOrganizationId;
+  }
+
+  if (profileBranchId) {
+    const branchesTable = supabase.from('branches') as any;
+    const { data: branchRow } = await branchesTable
+      .select('organization_id')
+      .eq('id', profileBranchId)
+      .maybeSingle();
+
+    const branchOrgId = ((branchRow as { organization_id?: string | null } | null)?.organization_id ?? null) as string | null;
+    if (branchOrgId) {
+      return branchOrgId;
+    }
+  }
+
   const organizationsTable = supabase.from('organizations') as any;
   const { data, error } = await organizationsTable
     .select('id')
@@ -42,11 +96,39 @@ async function resolveOrganizationId() {
     .limit(1)
     .maybeSingle();
 
-  if (error || !data?.id) {
-    throw error ?? new Error('Unable to resolve organization context.');
+  if (error) {
+    throw error;
   }
 
-  return data.id as string;
+  if (data?.id) {
+    return data.id as string;
+  }
+
+  let currentRole: string | null = profileRole;
+  if (!currentRole) {
+    const { data: roleData } = await supabase.rpc('current_role');
+    currentRole = (roleData ?? null) as string | null;
+  }
+
+  if (currentRole === 'super_admin') {
+    const defaultCode = `ORG-${Date.now().toString(36).toUpperCase()}`;
+    const { data: createdOrg, error: createOrgError } = await organizationsTable
+      .insert({
+        name: 'Kickstart Accounts',
+        code: defaultCode,
+        status: 'active',
+      })
+      .select('id')
+      .single();
+
+    if (createOrgError || !createdOrg?.id) {
+      throw createOrgError ?? new Error('Unable to initialize organization context.');
+    }
+
+    return createdOrg.id as string;
+  }
+
+  throw new Error('Unable to resolve organization context.');
 }
 
 export async function createBranch(input: BranchInsertInput) {

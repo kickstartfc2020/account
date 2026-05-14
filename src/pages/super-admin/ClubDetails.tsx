@@ -15,22 +15,40 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { getOrganizationDetails, updateOrganizationDetails } from '@/lib/adminManagement';
+import { getOrganizationDetails, updateOrganizationDetails, uploadOrganizationLogo } from '@/lib/adminManagement';
 import { toast } from 'sonner';
 import { reportOperationalError } from '@/lib/observability';
 
 export default function ClubDetails() {
-  const [academyName, setAcademyName] = React.useState('Kickstart Academy');
-  const [registrationCode, setRegistrationCode] = React.useState('KICK-2024-8849');
+  const [organization, setOrganization] = React.useState({
+    name: 'Kickstart Academy',
+    code: 'KICK-2024-8849',
+    address: '',
+    gstNumber: '',
+    panNumber: '',
+    email: '',
+    phone: '',
+    logoUrl: '',
+  });
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = React.useState(false);
+  const logoInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     let isMounted = true;
     getOrganizationDetails()
       .then((org) => {
         if (!isMounted || !org) return;
-        setAcademyName(org.name);
-        setRegistrationCode(org.code);
+        setOrganization({
+          name: org.name,
+          code: org.code,
+          address: org.address ?? '',
+          gstNumber: org.gst_number ?? '',
+          panNumber: org.pan_number ?? '',
+          email: org.email ?? '',
+          phone: org.phone ?? '',
+          logoUrl: org.logo_url ?? '',
+        });
       })
       .catch((error) => {
         reportOperationalError('superadmin.club_details', 'Failed to load organization details.', error);
@@ -41,11 +59,21 @@ export default function ClubDetails() {
   }, []);
 
   const handleSave = async () => {
+    if (!organization.name.trim() || !organization.code.trim()) {
+      toast.error('Organization name and registration number are required.');
+      return;
+    }
+
     setIsSaving(true);
     try {
       await updateOrganizationDetails({
-        name: academyName.trim(),
-        code: registrationCode.trim(),
+        name: organization.name.trim(),
+        code: organization.code.trim(),
+        address: organization.address.trim(),
+        gstNumber: organization.gstNumber.trim(),
+        panNumber: organization.panNumber.trim(),
+        email: organization.email.trim(),
+        phone: organization.phone.trim(),
       });
       toast.success('Organization details updated.');
     } catch (error) {
@@ -53,6 +81,24 @@ export default function ClubDetails() {
       toast.error(message);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const onFieldChange = (field: keyof typeof organization, value: string) => {
+    setOrganization((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const handleLogoUpload = async (file: File) => {
+    setIsUploadingLogo(true);
+    try {
+      const logoUrl = await uploadOrganizationLogo(file);
+      setOrganization((prev) => ({ ...prev, logoUrl }));
+      toast.success('Organization logo updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload logo.';
+      toast.error(message);
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -81,11 +127,11 @@ export default function ClubDetails() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Academy Name</Label>
-                  <Input value={academyName} onChange={(e) => setAcademyName(e.target.value)} className="h-11" />
+                  <Input value={organization.name} onChange={(e) => onFieldChange('name', e.target.value)} className="h-11" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Registration Number</Label>
-                  <Input value={registrationCode} onChange={(e) => setRegistrationCode(e.target.value)} className="h-11" />
+                  <Input value={organization.code} onChange={(e) => onFieldChange('code', e.target.value)} className="h-11" />
                 </div>
               </div>
               
@@ -94,18 +140,19 @@ export default function ClubDetails() {
                 <Textarea 
                   placeholder="Enter complete club address..." 
                   className="min-h-[80px] resize-none" 
-                  defaultValue="123 Sport Street, Mysore, Karnataka - 570001"
+                  value={organization.address}
+                  onChange={(e) => onFieldChange('address', e.target.value)}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">GST Number</Label>
-                  <Input defaultValue="29AAAAA0000A1Z5" className="h-11" />
+                  <Input value={organization.gstNumber} onChange={(e) => onFieldChange('gstNumber', e.target.value)} className="h-11" />
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">PAN Card Number</Label>
-                  <Input defaultValue="ABCDE1234F" className="h-11" />
+                  <Input value={organization.panNumber} onChange={(e) => onFieldChange('panNumber', e.target.value)} className="h-11" />
                 </div>
               </div>
 
@@ -129,14 +176,14 @@ export default function ClubDetails() {
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Global Support Email</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input defaultValue="admin@kickstart.com" className="h-11 pl-10" />
+                    <Input value={organization.email} onChange={(e) => onFieldChange('email', e.target.value)} className="h-11 pl-10" />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Primary Contact</Label>
                   <div className="relative">
                     <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <Input defaultValue="+91 98765 43210" className="h-11 pl-10" />
+                    <Input value={organization.phone} onChange={(e) => onFieldChange('phone', e.target.value)} className="h-11 pl-10" />
                   </div>
                 </div>
               </div>
@@ -172,12 +219,40 @@ export default function ClubDetails() {
             </CardHeader>
             <CardContent className="flex flex-col items-center gap-6">
               <div className="relative group">
-                <div className="w-32 h-32 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-5xl font-bold shadow-xl shadow-indigo-100 transition-transform group-hover:scale-95 duration-300">
-                  K
-                </div>
-                <button className="absolute -bottom-2 -right-2 p-3 bg-white rounded-xl shadow-lg border border-gray-200 text-gray-600 hover:text-indigo-600 transition-colors">
+                {organization.logoUrl ? (
+                  <img
+                    src={organization.logoUrl}
+                    alt="Organization logo"
+                    className="w-32 h-32 rounded-2xl object-cover shadow-xl shadow-indigo-100 transition-transform group-hover:scale-95 duration-300"
+                    width={128}
+                    height={128}
+                  />
+                ) : (
+                  <div className="w-32 h-32 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-5xl font-bold shadow-xl shadow-indigo-100 transition-transform group-hover:scale-95 duration-300">
+                    {(organization.name || 'K').charAt(0).toUpperCase()}
+                  </div>
+                )}
+                <button
+                  className="absolute -bottom-2 -right-2 p-3 bg-white rounded-xl shadow-lg border border-gray-200 text-gray-600 hover:text-indigo-600 transition-colors disabled:opacity-50"
+                  onClick={() => logoInputRef.current?.click()}
+                  disabled={isUploadingLogo}
+                  type="button"
+                >
                   <Camera className="w-4 h-4" />
                 </button>
+                <input
+                  ref={logoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      void handleLogoUpload(file);
+                    }
+                    e.target.value = '';
+                  }}
+                />
               </div>
               <div className="text-center">
                 <p className="text-xs font-bold text-gray-900">Kickstart Branding</p>

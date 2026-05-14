@@ -26,6 +26,25 @@ import {
 import { cn } from '@/lib/utils';
 import { useLocations } from '@/hooks/useData';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { toast } from 'sonner';
+import { createBranchManagerAccount } from '@/lib/adminManagement';
+import { reportOperationalError } from '@/lib/observability';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 type AdminUserRow = {
   id: string;
@@ -40,6 +59,12 @@ type AdminUserRow = {
 export default function UserManagement() {
   const { data: locations } = useLocations();
   const [users, setUsers] = React.useState<AdminUserRow[]>([]);
+  const [isAddAdminOpen, setIsAddAdminOpen] = React.useState(false);
+  const [fullName, setFullName] = React.useState('');
+  const [email, setEmail] = React.useState('');
+  const [password, setPassword] = React.useState('');
+  const [branchId, setBranchId] = React.useState('');
+  const [isCreating, setIsCreating] = React.useState(false);
 
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -72,6 +97,71 @@ export default function UserManagement() {
       });
   }, [locations]);
 
+  const resetCreateAdminForm = React.useCallback(() => {
+    setFullName('');
+    setEmail('');
+    setPassword('');
+    setBranchId('');
+  }, []);
+
+  const handleCreateAdmin = async () => {
+    if (isCreating) return;
+
+    if (!fullName.trim()) {
+      toast.error('Full name is required.');
+      return;
+    }
+
+    if (!email.trim()) {
+      toast.error('Email is required.');
+      return;
+    }
+
+    if (!branchId) {
+      toast.error('Please select a branch.');
+      return;
+    }
+
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters.');
+      return;
+    }
+
+    setIsCreating(true);
+    try {
+      const { userId } = await createBranchManagerAccount({
+        email,
+        password,
+        fullName,
+        branchId,
+      });
+
+      const selectedBranch = locations.find((location) => location.id === branchId);
+      setUsers((prev) => [
+        {
+          id: userId,
+          name: fullName.trim(),
+          email: email.trim(),
+          role: 'Branch Manager',
+          branch: selectedBranch?.name || 'Unknown Branch',
+          lastActive: 'Just created',
+          status: 'active',
+        },
+        ...prev,
+      ]);
+
+      toast.success('Admin user created successfully.');
+      setIsAddAdminOpen(false);
+      resetCreateAdminForm();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to create admin user.';
+      reportOperationalError('superadmin.user_create', 'Failed to create admin user.', error);
+      toast.error(message);
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   const roleDistribution = React.useMemo(() => {
     const total = users.length || 1;
     const byRole = users.reduce<Record<string, number>>((acc, u) => {
@@ -96,7 +186,7 @@ export default function UserManagement() {
           <h1 className="text-3xl font-display font-bold text-gray-900 tracking-tight">User Management</h1>
           <p className="text-gray-500 mt-1">Control access levels and manage administrator accounts for all branches.</p>
         </div>
-        <Button className="btn-primary gap-2 h-11 px-6">
+        <Button className="btn-primary gap-2 h-11 px-6" onClick={() => setIsAddAdminOpen(true)}>
           <UserPlus className="w-5 h-5" />
           Add Admin User
         </Button>
@@ -221,6 +311,79 @@ export default function UserManagement() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={isAddAdminOpen} onOpenChange={setIsAddAdminOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Admin User</DialogTitle>
+            <DialogDescription>
+              Create a branch-level admin account and assign it to a branch.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="admin-full-name">Full Name</Label>
+              <Input
+                id="admin-full-name"
+                placeholder="e.g. John Doe"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="admin-email">Email</Label>
+              <Input
+                id="admin-email"
+                type="email"
+                placeholder="admin@branch.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="admin-password">Initial Password</Label>
+              <Input
+                id="admin-password"
+                type="password"
+                placeholder="Set initial password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label>Assign Branch</Label>
+              <Select value={branchId} onValueChange={setBranchId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a branch" />
+                </SelectTrigger>
+                <SelectContent>
+                  {locations.map((location) => (
+                    <SelectItem key={location.id} value={location.id}>
+                      {location.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsAddAdminOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleCreateAdmin()}
+              disabled={isCreating || locations.length === 0}
+            >
+              {isCreating ? 'Creating...' : 'Create Admin'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
