@@ -22,7 +22,7 @@ import {
 
 export function Header() {
   const { data: locations } = useLocations();
-  const { data: sports } = useSports();
+  const { data: sports, loading: sportsLoading } = useSports();
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const navigate = useNavigate();
@@ -40,6 +40,7 @@ export function Header() {
     '';
 
   const handleCreateInvoiceClick = () => {
+    if (sportsLoading) return;
     if (sports.length === 0) {
       toast.error('No sports available. Please create a sport first.');
       navigate('/sports');
@@ -73,9 +74,9 @@ export function Header() {
           <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
         </Button>
 
-        <Button className="btn-primary gap-2" onClick={handleCreateInvoiceClick}>
+        <Button className="btn-primary gap-2" onClick={handleCreateInvoiceClick} disabled={sportsLoading}>
           <ReceiptText className="w-4 h-4" />
-          Create Invoice
+          {sportsLoading ? 'Loading...' : 'Create Invoice'}
         </Button>
 
         <div className="w-8 h-8 rounded-full bg-slate-200 overflow-hidden border">
