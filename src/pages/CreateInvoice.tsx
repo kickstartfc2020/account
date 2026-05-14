@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { formatDateDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
@@ -59,10 +60,12 @@ export default function CreateInvoice() {
   const [paymentMode, setPaymentMode] = React.useState('QR');
   const [gstRate, setGstRate] = React.useState(defaultGstRatePercentage);
   const [isGenerated, setIsGenerated] = React.useState(false);
+  const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
+  const submitRequestKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -74,6 +77,10 @@ export default function CreateInvoice() {
   React.useEffect(() => {
     setGstRate(defaultGstRatePercentage);
   }, [defaultGstRatePercentage]);
+
+  React.useEffect(() => {
+    submitRequestKeyRef.current = null;
+  }, [selectedStudentId, amount, discount, gstRate, paymentMode, activeSportId]);
   
   const selectedStudent = students.find(s => s.id === selectedStudentId);
 
@@ -145,6 +152,9 @@ export default function CreateInvoice() {
     }
 
     setIsSaving(true);
+    if (!submitRequestKeyRef.current) {
+      submitRequestKeyRef.current = `inv:${selectedStudent.id}:${Date.now()}:${crypto.randomUUID()}`;
+    }
 
     try {
       const result = await finalizeInvoiceWrite({
@@ -162,9 +172,11 @@ export default function CreateInvoice() {
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
         preferredBranchId: selectedStudent.locationId,
+        requestKey: submitRequestKeyRef.current,
       });
 
       setIsGenerated(true);
+      setGeneratedInvoiceNumber(result.invoiceNumber);
       toast.success('Invoice finalized and payment recorded.');
       if (!result.invoiceNumber) {
         throw new Error('Generated invoice number is missing. Please retry.');
@@ -178,8 +190,13 @@ export default function CreateInvoice() {
       }
     } catch (err) {
       invoiceTab.close();
+      reportOperationalError('invoice.finalize', 'Failed to finalize invoice.', err, {
+        studentId: selectedStudent.id,
+        packageId: studentPackage.id,
+      });
       const message = err instanceof Error ? err.message : 'Failed to finalize invoice.';
       toast.error(message);
+      submitRequestKeyRef.current = null;
     } finally {
       setIsSaving(false);
     }
@@ -442,7 +459,7 @@ export default function CreateInvoice() {
                 <div className="flex items-center gap-5">
                   <div className="w-16 h-16 rounded-xl bg-kickstart-forest flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-kickstart-forest/20 shrink-0 border-2 border-kickstart-yellow overflow-hidden">
                     {academy.logoUrl ? (
-                      <img src={academy.logoUrl} alt="Organization logo" className="w-full h-full object-cover" />
+                      <img src={academy.logoUrl} alt="Organization logo" width={64} height={64} className="w-full h-full object-cover" />
                     ) : (
                       academy.logoText || '?'
                     )}
@@ -464,7 +481,7 @@ export default function CreateInvoice() {
                   <div className="space-y-1">
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Invoice Number</span>
-                      <span className="text-xs font-bold text-kickstart-forest">{isGenerated ? invoiceNumber : '---'}</span>
+                      <span className="text-xs font-bold text-kickstart-forest">{isGenerated ? (generatedInvoiceNumber || invoiceNumber) : '---'}</span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Date Issued</span>

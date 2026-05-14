@@ -33,6 +33,7 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { format, formatDistanceToNow, parseISO, subMonths } from 'date-fns';
 import { useAuth } from '@/auth/AuthProvider';
 import { formatDateDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 
 const SPORT_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -80,6 +81,10 @@ export default function BranchDetails() {
     const { error } = await supabase.auth.resetPasswordForEmail(location.email);
     setIsResetting(false);
     if (error) {
+      reportOperationalError('auth.password_reset', 'Failed to send branch password reset email.', error, {
+        branchId: location?.id ?? null,
+        email: location?.email ?? null,
+      });
       toast.error(error.message);
       return;
     }

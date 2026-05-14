@@ -139,7 +139,7 @@ export async function uploadBranchImage(branchId: string, file: File) {
 
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
-    .upload(path, file, { upsert: true });
+    .upload(path, file, { upsert: false });
 
   if (uploadError) {
     throw uploadError;
@@ -260,7 +260,7 @@ export async function uploadOrganizationLogo(file: File) {
 
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
-    .upload(path, file, { upsert: true });
+    .upload(path, file, { upsert: false });
 
   if (uploadError) {
     throw uploadError;

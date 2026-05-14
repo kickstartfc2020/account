@@ -54,6 +54,7 @@ export default function ViewInvoice() {
   const location = locations.find(l => l.name === invoice.locationName) || locations[0];
   const invoiceStatus = isCancelledLocally ? 'cancelled' : invoice.status;
   const isCancelled = invoiceStatus === 'cancelled';
+  const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
 
   const handleCancelInvoice = async () => {
     if (isCancelled) {
@@ -237,7 +238,7 @@ export default function ViewInvoice() {
               <div className="flex items-center gap-5">
                 <div className="w-16 h-16 rounded-xl bg-[#1A3C34] flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-[#1A3C34]/20 shrink-0 border-2 border-[#FFD700] overflow-hidden">
                   {academy.logoUrl ? (
-                    <img src={academy.logoUrl} alt="Organization logo" crossOrigin="anonymous" className="w-full h-full object-cover" />
+                    <img src={academy.logoUrl} alt="Organization logo" width={64} height={64} crossOrigin="anonymous" className="w-full h-full object-cover" />
                   ) : (
                     academy.logoText || '?'
                   )}
@@ -333,7 +334,7 @@ export default function ViewInvoice() {
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500 font-medium">Tax Status</span>
-                    <span className="font-bold text-[#1A3C34]">{Math.round((invoice.tax / invoice.amount) * 100)}% GST Applied</span>
+                    <span className="font-bold text-[#1A3C34]">{gstPercentDisplay}% GST Applied</span>
                   </div>
                 </div>
               </div>
@@ -365,7 +366,7 @@ export default function ViewInvoice() {
                   </div>
                   <div className="flex justify-between text-sm items-center">
                     <div className="flex flex-col">
-                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">GST ({Math.round((invoice.tax / invoice.amount) * 100)}%)</span>
+                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">GST ({gstPercentDisplay}%)</span>
                       <span className="text-[8px] text-gray-400 font-medium">Central & State Tax</span>
                     </div>
                     <span className="font-bold text-gray-900 text-right">₹{invoice.tax.toLocaleString()}</span>

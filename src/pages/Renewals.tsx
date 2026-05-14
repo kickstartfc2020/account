@@ -58,6 +58,7 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { completeRenewal } from '@/lib/renewalWrite';
 import { computeBillingTotals } from '@/lib/billingMath';
 import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function Renewals() {
   const { data: renewalsData } = useRenewals();
@@ -129,7 +130,11 @@ export default function Renewals() {
       setIsInvoiceOpen(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to complete renewal.';
-      console.error(error);
+      reportOperationalError('renewal.complete', 'Failed to complete renewal.', error, {
+        renewalId: selectedRenewal.id,
+        studentId: selectedStudent?.id ?? null,
+        packageId: selectedPackage?.id ?? null,
+      });
       toast.error(message);
     } finally {
       setIsProcessing(false);

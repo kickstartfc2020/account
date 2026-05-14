@@ -55,6 +55,7 @@ import { Package } from '@/types';
 import { cn } from '@/lib/utils';
 import { createPackage, updatePackage, archivePackage } from '@/lib/dataMutations';
 import { normalizePackageDuration, type RecurringInterval } from '@/lib/packageDuration';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function Packages() {
   const { data: dbPackages } = usePackages();
@@ -132,7 +133,7 @@ export default function Packages() {
       e.currentTarget.reset();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create package.';
-      console.error(error);
+      reportOperationalError('package.create', 'Failed to create package.', error, { name, sportId: newSportId });
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -185,7 +186,7 @@ export default function Packages() {
       setEditRecurringCount('1');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update package.';
-      console.error(error);
+      reportOperationalError('package.update', 'Failed to update package.', error, { packageId: editingPackage.id });
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -204,7 +205,7 @@ export default function Packages() {
       setDeletingPackage(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to archive package.';
-      console.error(error);
+      reportOperationalError('package.archive', 'Failed to archive package.', error, { packageId: deletingPackage.id });
       toast.error(message);
     } finally {
       setIsArchiving(false);

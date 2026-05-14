@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { getOrganizationDetails } from '@/lib/adminManagement';
+import { reportOperationalError } from '@/lib/observability';
 
 export type AcademyDetails = {
   name: string;
@@ -45,7 +46,9 @@ export function useAcademyDetails(): AcademyDetails {
           address: org.address ?? '',
         });
       })
-      .catch(() => {});
+      .catch((error) => {
+        reportOperationalError('settings.organization', 'Failed to load organization details.', error);
+      });
     return () => { alive = false; };
   }, []);
 

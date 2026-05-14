@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
+import { reportOperationalError } from '@/lib/observability';
 
 function computeStudentStatus(
   expiryDate: string | null | undefined,
@@ -42,12 +43,15 @@ export function useLocations() {
     setLoading(true);
     supabase
       .from('branches')
-        .select('*')
+        .select('id, ref_id, name, address, phone, email, image, region')
       .is('archived_at', null)
       .order('name')
       .then(({ data: rows, error }) => {
         setLoading(false);
-        if (error) return;
+        if (error) {
+          reportOperationalError('query.branches', 'Failed to load branches.', error);
+          return;
+        }
         const r = (rows ?? []) as any[];
         setData(
           r.map((b) => ({
@@ -81,12 +85,16 @@ export function useGstRates() {
     setLoading(true);
     supabase
       .from('gst_rates')
-      .select('*')
+      .select('id, name, percentage, is_default')
+      .is('archived_at', null)
       .order('is_default', { ascending: false })
       .order('percentage', { ascending: true })
       .then(({ data: rows, error }) => {
         setLoading(false);
-        if (error) return;
+        if (error) {
+          reportOperationalError('query.gst_rates', 'Failed to load GST rates.', error);
+          return;
+        }
         const r = (rows ?? []) as any[];
         setData(
           r.map((rate) => ({
@@ -113,12 +121,15 @@ export function useGstRates() {
       setLoading(true);
       supabase
         .from('sports')
-        .select('*')
+        .select('id, name, status')
         .is('archived_at', null)
         .order('name')
         .then(({ data: rows, error }) => {
           setLoading(false);
-          if (error) return;
+          if (error) {
+            reportOperationalError('query.sports', 'Failed to load sports.', error);
+            return;
+          }
           const r = (rows ?? []) as any[];
           setData(
             r.map((s) => ({
@@ -148,12 +159,15 @@ export function useGstRates() {
       setLoading(true);
       supabase
         .from('packages')
-        .select('*, sports(name)')
+        .select('id, ref_id, name, sport_id, billing_type, duration_months, amount, gst_percent, status, sports(name)')
         .is('archived_at', null)
         .order('name')
         .then(({ data: rows, error }) => {
           setLoading(false);
-          if (error) return;
+          if (error) {
+            reportOperationalError('query.packages', 'Failed to load packages.', error);
+            return;
+          }
           const r = (rows ?? []) as any[];
           setData(
             r.map((p) => ({
@@ -187,13 +201,16 @@ export function useStudents() {
     supabase
       .from('students')
       .select(
-          `*, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)`
+        'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
       )
       .is('archived_at', null)
       .order('name')
       .then(({ data: rows, error }) => {
         setLoading(false);
-        if (error) return;
+        if (error) {
+          reportOperationalError('query.students', 'Failed to load students.', error);
+          return;
+        }
           const r = (rows ?? []) as any[];
           setData(
             r.map((s) => {
@@ -248,16 +265,16 @@ export function useInvoices() {
     supabase
       .from('invoices')
       .select(
-          `*, students(name, ref_id),
-         branches(name),
-         payments(method, status),
-         invoice_items(description)`
+        'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
       )
       .is('archived_at', null)
       .order('invoice_date', { ascending: false })
       .then(({ data: rows, error }) => {
         setLoading(false);
-        if (error) return;
+        if (error) {
+          reportOperationalError('query.invoices', 'Failed to load invoices.', error);
+          return;
+        }
           const r = (rows ?? []) as any[];
           setData(
             r.map((inv) => {
@@ -301,14 +318,15 @@ export function useRenewals() {
     setLoading(true);
     supabase
       .from('renewals')
-      .select(
-          `*, students(name), packages(name, sports(name))`
-      )
+      .select('id, ref_id, student_id, package_id, cycle_end, due_date, status, students(name), packages(name, sports(name))')
       .in('status', ['pending', 'overdue'])
       .order('due_date')
       .then(({ data: rows, error }) => {
         setLoading(false);
-        if (error) return;
+        if (error) {
+          reportOperationalError('query.renewals', 'Failed to load renewals.', error);
+          return;
+        }
           const r = (rows ?? []) as any[];
           setData(
             r.map((rv) => {

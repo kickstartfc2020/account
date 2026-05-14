@@ -27,6 +27,13 @@ import { Card, CardContent } from '@/components/ui/card';
 import { formatDateDMY } from '@/lib/utils';
 
 export default function Invoices() {
+    const statToneClass: Record<string, string> = {
+      indigo: 'bg-indigo-50 text-indigo-600',
+      emerald: 'bg-emerald-50 text-emerald-600',
+      amber: 'bg-amber-50 text-amber-600',
+      red: 'bg-red-50 text-red-600',
+    };
+
   const { data: invoices = [] } = useInvoices();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -53,7 +60,7 @@ export default function Invoices() {
     const cashTotal = activeInvoices
       .filter((inv) => inv.paymentMode === 'cash' || inv.paymentMode === 'card')
       .reduce((acc, inv) => acc + inv.total, 0);
-    const pendingEstimate = Math.max(0, totalBilled - (upiTotal + cashTotal));
+    const pendingEstimate = activeInvoices.reduce((acc, inv) => acc + Math.max(0, inv.balanceAmount ?? 0), 0);
 
     return [
       { label: 'Total Billed', value: `₹${Math.round(totalBilled).toLocaleString('en-IN')}`, color: 'indigo' },
@@ -90,7 +97,7 @@ export default function Invoices() {
                 <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{stat.label}</p>
                 <p className="text-xl font-display font-bold text-slate-900">{stat.value}</p>
               </div>
-              <div className={`p-2 bg-${stat.color}-50 text-${stat.color}-600 rounded-lg`}>
+              <div className={`p-2 rounded-lg ${statToneClass[stat.color] ?? statToneClass.indigo}`}>
                 <ArrowUpRight className="w-4 h-4" />
               </div>
             </CardContent>

@@ -31,6 +31,7 @@ Frontend (safe to expose in browser):
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
 - `VITE_APP_URL`
+- `VITE_CLIENT_LOG_ENDPOINT` (optional, centralized client error/event ingestion)
 
 Server/ops only (never expose to browser bundles):
 - `SUPABASE_SERVICE_ROLE_KEY`
@@ -61,3 +62,13 @@ Run before every release:
 - Do not commit real credentials in `.env.example` or tracked files.
 - Never put `SUPABASE_SERVICE_ROLE_KEY` in client-side code or `VITE_*` variables.
 - Keep RLS enabled in Supabase for all tenant-scoped tables.
+
+## Durability and Recovery
+
+- Disaster recovery and backup validation runbook: [docs/DISASTER_RECOVERY_AND_DURABILITY_RUNBOOK.md](docs/DISASTER_RECOVERY_AND_DURABILITY_RUNBOOK.md)
+- Use the runbook checklist before every production release and after every incident.
+
+## Production Launch Readiness
+
+- Final pre-launch checklist: [docs/PRODUCTION_LAUNCH_CHECKLIST.md](docs/PRODUCTION_LAUNCH_CHECKLIST.md)
+- Recommended release gate: `npm run release:check`

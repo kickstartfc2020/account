@@ -23,6 +23,7 @@ import { getOrganizationDetails, updateOrganizationDetails, uploadOrganizationLo
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { Trash2, Pencil, Check } from 'lucide-react';
 import type { GSTRate } from '@/types';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function Settings() {
   const [activeTab, setActiveTab] = React.useState('Organization');
@@ -69,8 +70,8 @@ export default function Settings() {
         });
         setOrganizationId(org.id);
       })
-      .catch(() => {
-        // Keep fallback values for unauthenticated/dev states.
+      .catch((error) => {
+        reportOperationalError('settings.organization', 'Failed to initialize organization settings.', error);
       });
     return () => {
       isMounted = false;
@@ -95,6 +96,7 @@ export default function Settings() {
     const { data, error } = await gstRatesTable
       .select('*')
       .eq('organization_id', organizationId)
+      .is('archived_at', null)
       .order('is_default', { ascending: false })
       .order('percentage', { ascending: true });
 
@@ -291,17 +293,35 @@ export default function Settings() {
 
   const handleDeleteGstRate = async (rate: GSTRate) => {
     if (!isSupabaseConfigured || !supabase || !organizationId) return;
+    const activeRates = gstRates.filter((item) => item.id !== rate.id);
+    if (activeRates.length === 0) {
+      toast.error('At least one GST rate must remain active.');
+      return;
+    }
+
     setIsSavingGst(true);
     try {
       const gstRatesTable = supabase.from('gst_rates') as any;
       const { error } = await gstRatesTable
-        .delete()
+        .update({
+          archived_at: new Date().toISOString(),
+          is_default: false,
+        })
         .eq('id', rate.id)
         .eq('organization_id', organizationId);
       if (error) throw error;
 
+      if (rate.isDefault) {
+        const replacement = activeRates.find((item) => !item.isDefault) ?? activeRates[0];
+        const { error: replacementError } = await gstRatesTable
+          .update({ is_default: true })
+          .eq('id', replacement.id)
+          .eq('organization_id', organizationId);
+        if (replacementError) throw replacementError;
+      }
+
       await loadGstRates();
-      toast.success('GST rate deleted.');
+      toast.success('GST rate archived.');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete GST rate.';
       toast.error(message);
@@ -349,7 +369,7 @@ export default function Settings() {
                   <div className="flex items-center gap-6">
                     <div className="w-24 h-24 rounded-2xl bg-indigo-600 overflow-hidden flex items-center justify-center text-white text-4xl font-bold shadow-lg shadow-indigo-100">
                       {organization.logoUrl ? (
-                        <img src={organization.logoUrl} alt="Organization logo" className="w-full h-full object-cover" />
+                        <img src={organization.logoUrl} alt="Organization logo" width={96} height={96} className="w-full h-full object-cover" />
                       ) : (
                         (organization.name || 'K').charAt(0).toUpperCase()
                       )}

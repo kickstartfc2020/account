@@ -57,6 +57,7 @@ import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
 import type { Student } from '@/types';
 import { formatDateDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function Students() {
   const { data: students } = useStudents();
@@ -155,7 +156,11 @@ export default function Students() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create student.';
-      console.error(error);
+      reportOperationalError('student.create', 'Failed to create student.', error, {
+        name: newStudent.name,
+        sportId: newStudent.sportId,
+        packageId: newStudent.packageId,
+      });
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -191,7 +196,9 @@ export default function Students() {
       setIsEditDialogOpen(false);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update student.';
-      console.error(error);
+      reportOperationalError('student.update', 'Failed to update student.', error, {
+        studentId: editingStudent.id,
+      });
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -209,7 +216,9 @@ export default function Students() {
       toast.success('Student archived successfully');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to archive student.';
-      console.error(error);
+      reportOperationalError('student.archive', 'Failed to archive student.', error, {
+        studentId: student.id,
+      });
       toast.error(message);
     } finally {
       setIsArchiving(false);

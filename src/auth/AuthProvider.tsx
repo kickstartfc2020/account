@@ -1,6 +1,7 @@
 import React from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { reportOperationalError } from '@/lib/observability';
 
 export type AppRole = 'super_admin' | 'organization_admin' | 'branch_manager';
 
@@ -38,8 +39,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
+    let resolvedRole: AppRole | null = null;
     const { data, error } = await supabase.rpc('current_role');
-    let resolvedRole = (data ?? null) as AppRole | null;
+    if (error) {
+      reportOperationalError('auth.role', 'Failed to resolve role via RPC.', error, {
+        userId: nextSession.user?.id ?? null,
+      });
+    }
+    resolvedRole = (data ?? null) as AppRole | null;
 
     if ((!resolvedRole || error) && nextSession.user?.id) {
       const { data: profileRow } = await supabase
@@ -69,8 +76,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let isMounted = true;
     isMountedRef.current = true;
 
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
       if (!isMounted) return;
+      if (error) {
+        reportOperationalError('auth.session', 'Failed to read active auth session.', error);
+      }
       setSession(data.session);
       loadRole(data.session).finally(() => {
         if (isMounted) setLoading(false);

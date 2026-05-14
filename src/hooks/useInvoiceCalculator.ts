@@ -1,4 +1,5 @@
 import React from 'react';
+import { computeBillingTotals } from '@/lib/billingMath';
 
 type UseInvoiceCalculatorInput = {
   amount: string;
@@ -16,23 +17,22 @@ export function useInvoiceCalculator({
   invoiceCount,
 }: UseInvoiceCalculatorInput) {
   return React.useMemo(() => {
-    const subtotal = parseFloat(amount) || 0;
-    const discountAmount = parseFloat(discount) || 0;
-    const taxableAmount = Math.max(0, subtotal - discountAmount);
-    const currentTaxRate = parseInt(gstRate, 10) / 100;
-    const taxAmount = taxableAmount * currentTaxRate;
-    const total = taxableAmount + taxAmount;
+    const parsedAmount = Number.parseFloat(amount) || 0;
+    const parsedDiscount = Number.parseFloat(discount) || 0;
+    const parsedGst = Number.parseFloat(gstRate) || 0;
+
+    const totals = computeBillingTotals(parsedAmount, parsedGst, parsedDiscount);
 
     const academyPrefix = academyName.substring(0, 3).toUpperCase();
     const sequenceNumber = (invoiceCount + 1).toString().padStart(2, '0');
     const invoiceNumber = `INC${academyPrefix}${sequenceNumber}`;
 
     return {
-      subtotal,
-      discountAmount,
-      taxableAmount,
-      taxAmount,
-      total,
+      subtotal: totals.subtotal,
+      discountAmount: totals.discountAmount,
+      taxableAmount: totals.taxableAmount,
+      taxAmount: totals.taxTotal,
+      total: totals.totalAmount,
       invoiceNumber,
     };
   }, [academyName, amount, discount, gstRate, invoiceCount]);
