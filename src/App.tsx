@@ -16,6 +16,7 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
 import { useAuth } from '@/auth/AuthProvider';
+import { supabaseConfigurationError } from '@/lib/supabase';
 
 const Login = React.lazy(() => import('@/pages/Login'));
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
@@ -33,6 +34,7 @@ const ClubDetails = React.lazy(() => import('./pages/super-admin/ClubDetails'));
 const BranchDetails = React.lazy(() => import('./pages/super-admin/BranchDetails'));
 const CreateInvoice = React.lazy(() => import('./pages/CreateInvoice'));
 const ViewInvoice = React.lazy(() => import('./pages/ViewInvoice'));
+const HealthConfig = React.lazy(() => import('./pages/HealthConfig'));
 
 function PageLoader() {
   return (
@@ -91,15 +93,39 @@ function RoleHomeRedirect() {
 }
 
 export default function App() {
+  const configurationErrorElement = (
+    <div className="min-h-screen grid place-items-center bg-gray-50 px-6">
+      <div className="w-full max-w-2xl rounded-2xl border border-amber-200 bg-white p-8 shadow-sm">
+        <h1 className="text-2xl font-display font-bold text-slate-900">Configuration Error</h1>
+        <p className="mt-3 text-sm text-slate-600">
+          The application could not start because required production environment settings are invalid.
+        </p>
+        <p className="mt-4 rounded-lg bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
+          {supabaseConfigurationError}
+        </p>
+        <p className="mt-4 text-xs text-slate-500">
+          Open /health/config to inspect sanitized runtime configuration status.
+        </p>
+      </div>
+    </div>
+  );
+
   return (
     <TooltipProvider>
       <Router>
         <React.Suspense fallback={<PageLoader />}>
           <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route element={<ProtectedRoute />}>
-              <Route path="*" element={<AppLayout />} />
-            </Route>
+            <Route path="/health/config" element={<HealthConfig />} />
+            {supabaseConfigurationError ? (
+              <Route path="*" element={configurationErrorElement} />
+            ) : (
+              <>
+                <Route path="/login" element={<Login />} />
+                <Route element={<ProtectedRoute />}>
+                  <Route path="*" element={<AppLayout />} />
+                </Route>
+              </>
+            )}
           </Routes>
         </React.Suspense>
       </Router>

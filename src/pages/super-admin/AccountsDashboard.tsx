@@ -65,7 +65,6 @@ export default function AccountsDashboard() {
   }, [allStudents]);
 
   const getRegionName = React.useCallback((location: (typeof allLocations)[number]) => {
-    if (location.region && location.region.trim()) return location.region;
     if (!location.address) return 'unknown';
     const segments = location.address.split(',').map((s) => s.trim()).filter(Boolean);
     if (segments.length === 0) return 'unknown';
