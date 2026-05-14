@@ -30,6 +30,19 @@ type ProfileContext = {
   branchId: string | null;
 };
 
+function isRlsError(error: unknown) {
+  return error instanceof Error && /row-level security|permission denied|violates row-level security/i.test(error.message);
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ''));
+    reader.onerror = () => reject(new Error('Failed to read logo file.'));
+    reader.readAsDataURL(file);
+  });
+}
+
 async function resolveProfileContext(): Promise<ProfileContext> {
   if (!supabase) throw new Error('Supabase is not configured.');
 
@@ -86,19 +99,6 @@ async function resolveOrganizationId() {
     if (branchOrgId) {
       return branchOrgId;
     }
-  }
-
-  function isRlsError(error: unknown) {
-    return error instanceof Error && /row-level security|permission denied|violates row-level security/i.test(error.message);
-  }
-
-  function fileToDataUrl(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(String(reader.result ?? ''));
-      reader.onerror = () => reject(new Error('Failed to read logo file.'));
-      reader.readAsDataURL(file);
-    });
   }
 
   const organizationsTable = supabase.from('organizations') as any;
