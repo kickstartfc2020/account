@@ -88,6 +88,19 @@ async function resolveOrganizationId() {
     }
   }
 
+  function isRlsError(error: unknown) {
+    return error instanceof Error && /row-level security|permission denied|violates row-level security/i.test(error.message);
+  }
+
+  function fileToDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result ?? ''));
+      reader.onerror = () => reject(new Error('Failed to read logo file.'));
+      reader.readAsDataURL(file);
+    });
+  }
+
   const organizationsTable = supabase.from('organizations') as any;
   const { data, error } = await organizationsTable
     .select('id')
@@ -386,16 +399,22 @@ export async function uploadOrganizationLogo(file: File) {
   const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
   const path = `organization/${organizationId}/logo-${Date.now()}.${extension}`;
 
+  let logoUrl: string;
+
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
     .upload(path, file, { upsert: false });
 
   if (uploadError) {
-    throw uploadError;
-  }
+    if (!isRlsError(uploadError)) {
+      throw uploadError;
+    }
 
-  const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
-  const logoUrl = data.publicUrl;
+    logoUrl = await fileToDataUrl(file);
+  } else {
+    const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
+    logoUrl = data.publicUrl;
+  }
 
   const organizationsTable = supabase.from('organizations') as any;
   const { error: updateError } = await organizationsTable

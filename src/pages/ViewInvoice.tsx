@@ -16,21 +16,127 @@ import { toast } from 'sonner';
 import { buildInvoicePdfBlob, downloadPdfBlob, sharePdfByEmail } from '@/lib/invoiceExport';
 import { cancelInvoice } from '@/lib/invoiceMutations';
 import { formatDateDMY } from '@/lib/utils';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import type { Invoice } from '@/types';
+
+function mapInvoiceRowToInvoice(row: any): Invoice {
+  const student = row.students as { name: string; ref_id: string | null } | null;
+  const branch = row.branches as { name: string } | null;
+  const payments = (row.payments as Array<{ method: string; status: string }>) ?? [];
+  const items = (row.invoice_items as Array<{ description: string }>) ?? [];
+  const completedPayment = payments.find((payment) => payment.status === 'completed');
+
+  return {
+    id: row.invoice_number as string,
+    studentId: row.student_id as string,
+    studentRefId: student?.ref_id ?? undefined,
+    studentName: student?.name ?? '',
+    amount: row.subtotal as number,
+    tax: row.tax_total as number,
+    total: row.total_amount as number,
+    status: (row.status as Invoice['status']) ?? 'unpaid',
+    balanceAmount: (row.balance_amount as number) ?? 0,
+    paymentMode: (completedPayment?.method ?? 'cash') as Invoice['paymentMode'],
+    date: row.invoice_date as string,
+    locationId: row.branch_id as string,
+    locationName: branch?.name ?? '',
+    packageName: items[0]?.description ?? '',
+  };
+}
 
 export default function ViewInvoice() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { data: invoices } = useInvoices();
+  const { data: invoices, loading: invoicesLoading } = useInvoices();
   const { data: students } = useStudents();
   const { data: locations } = useLocations();
   const isGeneratedMode = searchParams.get('generated') === '1';
   const invoiceCardRef = React.useRef<HTMLDivElement | null>(null);
   
   const academy = useAcademyDetails();
-  const invoice = invoices.find(inv => inv.id === id);
+  const [resolvedGeneratedInvoice, setResolvedGeneratedInvoice] = React.useState<Invoice | null>(null);
+  const [isResolvingGeneratedInvoice, setIsResolvingGeneratedInvoice] = React.useState(false);
+  const invoice = invoices.find((inv) => inv.id === id) ?? resolvedGeneratedInvoice;
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [isCancelledLocally, setIsCancelledLocally] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!isGeneratedMode || !id || invoice || !isSupabaseConfigured || !supabase) {
+      return;
+    }
+
+    let cancelled = false;
+    let attempt = 0;
+    const maxAttempts = 12;
+
+    const resolveInvoice = async () => {
+      setIsResolvingGeneratedInvoice(true);
+
+      try {
+        const { data, error } = await (supabase as any)
+          .from('invoices')
+          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)')
+          .eq('invoice_number', id)
+          .maybeSingle();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (error) {
+          throw error;
+        }
+
+        if (data) {
+          setResolvedGeneratedInvoice(mapInvoiceRowToInvoice(data));
+          setIsResolvingGeneratedInvoice(false);
+          return;
+        }
+
+        attempt += 1;
+        if (attempt < maxAttempts) {
+          window.setTimeout(resolveInvoice, 750);
+        } else {
+          setIsResolvingGeneratedInvoice(false);
+        }
+      } catch {
+        if (!cancelled) {
+          attempt += 1;
+          if (attempt < maxAttempts) {
+            window.setTimeout(resolveInvoice, 750);
+          } else {
+            setIsResolvingGeneratedInvoice(false);
+          }
+        }
+      }
+    };
+
+    void resolveInvoice();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id, invoice, isGeneratedMode]);
+
+  if ((isGeneratedMode && !invoice) || (invoicesLoading && !invoice)) {
+    return (
+      <div className={isGeneratedMode ? 'flex-1 bg-gray-50 flex items-center justify-center p-8' : '-mx-8 -my-8 flex-1 bg-gray-50 flex items-center justify-center p-8 rounded-2xl overflow-hidden border shadow-sm'}>
+        <div className="max-w-sm w-full rounded-3xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-indigo-50">
+            <ReceiptText className="h-7 w-7 text-indigo-600 animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-display font-bold text-slate-900">Preparing invoice</h2>
+          <p className="mt-3 text-sm text-slate-500">
+            The invoice is being saved and loaded. This view will update automatically once it is ready.
+          </p>
+          {(isResolvingGeneratedInvoice || invoicesLoading) && (
+            <p className="mt-4 text-xs font-medium uppercase tracking-widest text-slate-400">Waiting for the latest invoice data</p>
+          )}
+        </div>
+      </div>
+    );
+  }
   
   if (!invoice) {
     return (
