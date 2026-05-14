@@ -99,15 +99,15 @@ export default function CreateInvoice() {
   );
   
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
-  const packageMaxAmount = studentPackage?.price ?? null;
-  const hasActivePaidInvoice = studentPayments.some(inv => inv.status !== 'cancelled');
-  const amountExceedsPackage = packageMaxAmount !== null && parseFloat(amount || '0') > packageMaxAmount;
   const branch =
     locations.find((location) => location.id === selectedStudent?.locationId) ??
     locations.find((location) => location.id === currentBranchId) ??
     locations[0] ??
     null;
   const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) || packages.find((p) => p.sportId === activeSportId);
+  const packageMaxAmount = studentPackage?.price ?? null;
+  const hasActivePaidInvoice = studentPayments.some(inv => inv.status !== 'cancelled');
+  const amountExceedsPackage = packageMaxAmount !== null && parseFloat(amount || '0') > packageMaxAmount;
   const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
     useInvoiceCalculator({
       amount,
