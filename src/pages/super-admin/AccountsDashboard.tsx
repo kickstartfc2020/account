@@ -35,7 +35,7 @@ import {
 import { Calendar as CalendarComponent } from '@/components/ui/calendar';
 import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { DateRange } from "react-day-picker";
-import { createBranch, createBranchManagerAccount, rollbackBranchCreation, uploadBranchImage, deleteAuthUser } from '@/lib/adminManagement';
+import { createBranch, createBranchManagerAccount, uploadBranchImage } from '@/lib/adminManagement';
 import { toast } from 'sonner';
 import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
 
@@ -104,39 +104,41 @@ export default function AccountsDashboard() {
     }
 
     setIsCreatingBranch(true);
-    let createdBranchId: string | null = null;
-    let createdManagerUserId: string | null = null;
     try {
       const created = await createBranch({
         name: newBranchName.trim(),
         email: newBranchEmail.trim(),
       });
-      createdBranchId = created.id;
 
-      const managerPromise = createBranchManagerAccount({
-        email: newBranchEmail.trim(),
-        password: newBranchPassword,
-        fullName: `${newBranchName.trim()} Manager`,
-        branchId: created.id,
-      });
-
-      const imagePromise = newBranchImageFile
-        ? uploadBranchImage(created.id, newBranchImageFile)
-        : Promise.resolve(undefined);
-
-      const [imageResult, managerResult] = await Promise.allSettled([imagePromise, managerPromise]);
-
-      if (managerResult.status === 'rejected') {
-        throw managerResult.reason;
+      let imageUrl: string | undefined;
+      if (newBranchImageFile) {
+        try {
+          imageUrl = await uploadBranchImage(created.id, newBranchImageFile);
+        } catch (imageError) {
+          const imageMessage =
+            typeof imageError === 'object' && imageError !== null && 'message' in imageError
+              ? String((imageError as { message?: unknown }).message ?? 'Failed to upload branch image.')
+              : 'Failed to upload branch image.';
+          toast.warning(imageMessage);
+        }
       }
 
-      createdManagerUserId = managerResult.value.userId;
-
-      if (imageResult.status === 'rejected') {
-        throw imageResult.reason;
+      let managerCreated = false;
+      let managerErrorMessage: string | null = null;
+      try {
+        await createBranchManagerAccount({
+          email: newBranchEmail.trim(),
+          password: newBranchPassword,
+          fullName: `${newBranchName.trim()} Manager`,
+          branchId: created.id,
+        });
+        managerCreated = true;
+      } catch (managerError) {
+        managerErrorMessage =
+          typeof managerError === 'object' && managerError !== null && 'message' in managerError
+            ? String((managerError as { message?: unknown }).message ?? 'Failed to create manager account.')
+            : 'Failed to create manager account.';
       }
-
-      const imageUrl = imageResult.value;
 
       setCreatedBranches((prev) => [
         {
@@ -161,22 +163,17 @@ export default function AccountsDashboard() {
       setNewBranchPassword('');
       setNewBranchImageFile(null);
       setNewBranchImagePreview('');
-      toast.success('Branch and manager account created successfully.');
+
+      if (managerCreated) {
+        toast.success('Branch and manager account created successfully.');
+      } else {
+        toast.warning(
+          managerErrorMessage
+            ? `Branch created, but manager setup failed: ${managerErrorMessage}`
+            : 'Branch created, but manager setup failed.'
+        );
+      }
     } catch (error) {
-      if (createdManagerUserId) {
-        try {
-          await deleteAuthUser(createdManagerUserId);
-        } catch {
-          // Keep original error; auth cleanup is best effort.
-        }
-      }
-      if (createdBranchId) {
-        try {
-          await rollbackBranchCreation(createdBranchId);
-        } catch {
-          // Keep original error; rollback is best effort.
-        }
-      }
       const message =
         typeof error === 'object' && error !== null && 'message' in error
           ? String((error as { message?: unknown }).message ?? 'Failed to create branch.')

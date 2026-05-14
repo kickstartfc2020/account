@@ -137,12 +137,13 @@ export async function createBranch(input: BranchInsertInput) {
   }
 
   const organizationId = await resolveOrganizationId();
+  const normalizedName = input.name.trim();
   const branchesTable = supabase.from('branches') as any;
 
   const { data, error } = await branchesTable
     .insert({
       organization_id: organizationId,
-      name: input.name,
+      name: normalizedName,
       address: input.address ?? '',
       phone: input.phone ?? '',
       email: input.email ?? '',
@@ -150,6 +151,31 @@ export async function createBranch(input: BranchInsertInput) {
     })
     .select('*')
     .single();
+
+  // If a prior attempt already created this branch name, reuse it instead of failing.
+  if (error?.code === '23505') {
+    const { data: existingBranch, error: lookupError } = await branchesTable
+      .select('*')
+      .eq('organization_id', organizationId)
+      .eq('name', normalizedName)
+      .maybeSingle();
+
+    if (!lookupError && existingBranch) {
+      if (existingBranch.status !== 'active' || existingBranch.archived_at) {
+        const { data: reactivatedBranch, error: reactivateError } = await branchesTable
+          .update({ status: 'active', archived_at: null })
+          .eq('id', existingBranch.id)
+          .select('*')
+          .single();
+
+        if (!reactivateError && reactivatedBranch) {
+          return reactivatedBranch as { id: string; name: string; image?: string | null };
+        }
+      }
+
+      return existingBranch as { id: string; name: string; image?: string | null };
+    }
+  }
 
   if (error || !data) {
     throw error ?? new Error('Failed to create branch.');
@@ -196,6 +222,22 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
       } catch {
         // Fall back to the default error message when the payload is not JSON.
       }
+    }
+
+    // Fallback: some deployments may block Edge Function preflight. Try secure SQL RPC path.
+    const { data: rpcUserId, error: rpcError } = await (supabase as any).rpc('admin_create_branch_manager', {
+      p_email: input.email.trim(),
+      p_password: input.password,
+      p_full_name: input.fullName ?? null,
+      p_branch_id: input.branchId,
+    });
+
+    if (!rpcError && rpcUserId) {
+      return { userId: String(rpcUserId) };
+    }
+
+    if (rpcError?.code === '42883') {
+      throw new Error(`${message} (Edge function unavailable and SQL fallback is not deployed.)`);
     }
 
     throw new Error(message);

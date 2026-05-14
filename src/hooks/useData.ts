@@ -43,8 +43,8 @@ export function useLocations() {
     setLoading(true);
     supabase
       .from('branches')
-        .select('id, ref_id, name, address, phone, email, image')
-      .is('archived_at', null)
+        .select('id, ref_id, name, address, phone, email, image, status')
+      .neq('status', 'archived')
       .order('name')
       .then(({ data: rows, error }) => {
         setLoading(false);
