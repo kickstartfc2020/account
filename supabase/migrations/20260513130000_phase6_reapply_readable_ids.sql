@@ -1,4 +1,4 @@
-﻿-- Phase 6: Re-apply readable IDs using unique migration version.
+-- Phase 6: Re-apply readable IDs using unique migration version.
 -- Reason: earlier migration files used the same version prefix (20260513_*),
 -- which can prevent intended migrations from running in order.
 -- Phase 5: Human-readable reference IDs

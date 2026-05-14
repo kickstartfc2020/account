@@ -64,10 +64,13 @@ export interface Student {
 export interface Invoice {
   id: string;
   studentId: string;
+  studentRefId?: string;
   studentName: string;
   amount: number;
   tax: number;
   total: number;
+  status: 'draft' | 'unpaid' | 'partial' | 'completed' | 'cancelled';
+  balanceAmount: number;
   paymentMode: PaymentMode;
   date: string;
   locationId: string;

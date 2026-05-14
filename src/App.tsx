@@ -9,39 +9,51 @@
  */
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { Sidebar } from './components/layout/Sidebar';
 import { Header } from './components/layout/Header';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import ProtectedRoute from '@/components/auth/ProtectedRoute';
-import Login from '@/pages/Login';
 import { useAuth } from '@/auth/AuthProvider';
 
-// Lazy load pages
-import Dashboard from './pages/Dashboard';
-import Locations from './pages/Locations';
-import Sports from './pages/Sports';
-import Packages from './pages/Packages';
-import Students from './pages/Students';
-import Renewals from './pages/Renewals';
-import Invoices from './pages/Invoices';
-import Reports from './pages/Reports';
-import Settings from './pages/Settings';
-import AccountsDashboard from './pages/super-admin/AccountsDashboard';
-import UserManagement from './pages/super-admin/UserManagement';
-import ClubDetails from './pages/super-admin/ClubDetails';
-import BranchDetails from './pages/super-admin/BranchDetails';
-import CreateInvoice from './pages/CreateInvoice';
-import ViewInvoice from './pages/ViewInvoice';
+const Login = React.lazy(() => import('@/pages/Login'));
+const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const Locations = React.lazy(() => import('./pages/Locations'));
+const Sports = React.lazy(() => import('./pages/Sports'));
+const Packages = React.lazy(() => import('./pages/Packages'));
+const Students = React.lazy(() => import('./pages/Students'));
+const Renewals = React.lazy(() => import('./pages/Renewals'));
+const Invoices = React.lazy(() => import('./pages/Invoices'));
+const Reports = React.lazy(() => import('./pages/Reports'));
+const Settings = React.lazy(() => import('./pages/Settings'));
+const AccountsDashboard = React.lazy(() => import('./pages/super-admin/AccountsDashboard'));
+const UserManagement = React.lazy(() => import('./pages/super-admin/UserManagement'));
+const ClubDetails = React.lazy(() => import('./pages/super-admin/ClubDetails'));
+const BranchDetails = React.lazy(() => import('./pages/super-admin/BranchDetails'));
+const CreateInvoice = React.lazy(() => import('./pages/CreateInvoice'));
+const ViewInvoice = React.lazy(() => import('./pages/ViewInvoice'));
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <p className="text-sm text-slate-500">Loading...</p>
+    </div>
+  );
+}
 
 function AppLayout() {
+  const location = useLocation();
+  const isGeneratedInvoiceView =
+    location.pathname.startsWith('/invoices/view/') &&
+    new URLSearchParams(location.search).get('generated') === '1';
+
   return (
     <div className="flex min-h-screen bg-gray-50">
-      <Sidebar />
+      {!isGeneratedInvoiceView && <Sidebar />}
       <div className="flex-1 flex flex-col min-w-0">
-        <Header />
-        <main className="flex-1 overflow-y-auto px-8 py-8">
+        {!isGeneratedInvoiceView && <Header />}
+        <main className={isGeneratedInvoiceView ? 'flex-1 overflow-y-auto p-0' : 'flex-1 overflow-y-auto px-8 py-8'}>
           <Routes>
             <Route element={<ProtectedRoute allowedRoles={['organization_admin', 'branch_manager']} />}>
               <Route path="/" element={<Dashboard />} />
@@ -82,12 +94,14 @@ export default function App() {
   return (
     <TooltipProvider>
       <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute />}>
-            <Route path="*" element={<AppLayout />} />
-          </Route>
-        </Routes>
+        <React.Suspense fallback={<PageLoader />}>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route element={<ProtectedRoute />}>
+              <Route path="*" element={<AppLayout />} />
+            </Route>
+          </Routes>
+        </React.Suspense>
       </Router>
     </TooltipProvider>
   );

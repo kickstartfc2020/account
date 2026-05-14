@@ -6,6 +6,8 @@ const SPORT_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444', '#06b6d4', '#f
 
 export function useReportAnalytics(invoices: Invoice[], students: Student[]) {
   return React.useMemo(() => {
+    const activeInvoices = invoices.filter((inv) => inv.status !== 'cancelled');
+
     const now = new Date();
     const months = Array.from({ length: 6 }).map((_, idx) => {
       const d = subMonths(now, 5 - idx);
@@ -14,7 +16,7 @@ export function useReportAnalytics(invoices: Invoice[], students: Student[]) {
     });
 
     const revenueMap = new Map<string, number>();
-    for (const inv of invoices) {
+    for (const inv of activeInvoices) {
       const key = format(parseISO(inv.date), 'yyyy-MM');
       revenueMap.set(key, (revenueMap.get(key) ?? 0) + inv.total);
     }

@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { getOrganizationDetails, updateOrganizationDetails } from '@/lib/adminManagement';
 import { toast } from 'sonner';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function ClubDetails() {
   const [academyName, setAcademyName] = React.useState('Kickstart Academy');
@@ -31,8 +32,8 @@ export default function ClubDetails() {
         setAcademyName(org.name);
         setRegistrationCode(org.code);
       })
-      .catch(() => {
-        // Keep default values when org read is unavailable.
+      .catch((error) => {
+        reportOperationalError('superadmin.club_details', 'Failed to load organization details.', error);
       });
     return () => {
       isMounted = false;

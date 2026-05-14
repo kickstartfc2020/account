@@ -29,6 +29,7 @@ import { Sport } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createSport, updateSportStatus } from '@/lib/dataMutations';
+import { reportOperationalError } from '@/lib/observability';
 import {
   Dialog,
   DialogContent,
@@ -97,7 +98,7 @@ export default function Sports() {
       setSelectedIcon('Trophy');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create sport.';
-      console.error(error);
+      reportOperationalError('sport.create', 'Failed to create sport.', error, { name: newSportName });
       toast.error(message);
     } finally {
       setIsSaving(false);
@@ -132,7 +133,10 @@ export default function Sports() {
       setSportToToggle(null);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to update sport status.';
-      console.error(error);
+      reportOperationalError('sport.status', 'Failed to update sport status.', error, {
+        sportId: id,
+        nextStatus,
+      });
       toast.error(message);
     } finally {
       setIsToggling(false);

@@ -17,6 +17,11 @@ type BranchManagerInput = {
 type OrganizationUpdateInput = {
   name: string;
   code: string;
+  gstNumber?: string;
+  panNumber?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
 };
 
 async function resolveOrganizationId() {
@@ -76,7 +81,18 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
     throw new Error('Supabase is not configured.');
   }
 
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+
+  if (!session?.access_token) {
+    throw new Error('You must be signed in to create a branch manager.');
+  }
+
   const { data, error } = await supabase.functions.invoke('admin-create-branch-manager', {
+    headers: {
+      Authorization: `Bearer ${session.access_token}`,
+    },
     body: {
       email: input.email.trim(),
       password: input.password,
@@ -85,8 +101,26 @@ export async function createBranchManagerAccount(input: BranchManagerInput) {
     },
   });
 
-  if (error || !data?.userId) {
-    throw error ?? new Error('Unable to create branch manager account.');
+  if (error) {
+    let message = error.message || 'Unable to create branch manager account.';
+
+    const maybeContext = (error as { context?: { json?: () => Promise<unknown> } }).context;
+    if (maybeContext?.json) {
+      try {
+        const payload = (await maybeContext.json()) as { message?: unknown };
+        if (payload?.message) {
+          message = String(payload.message);
+        }
+      } catch {
+        // Fall back to the default error message when the payload is not JSON.
+      }
+    }
+
+    throw new Error(message);
+  }
+
+  if (!data?.userId) {
+    throw new Error('Unable to create branch manager account.');
   }
 
   const userId = String(data.userId);
@@ -105,7 +139,7 @@ export async function uploadBranchImage(branchId: string, file: File) {
 
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
-    .upload(path, file, { upsert: true });
+    .upload(path, file, { upsert: false });
 
   if (uploadError) {
     throw uploadError;
@@ -178,7 +212,17 @@ export async function getOrganizationDetails() {
     throw error ?? new Error('Failed to load organization.');
   }
 
-  return data as { id: string; name: string; code: string };
+  return data as {
+    id: string;
+    name: string;
+    code: string;
+    logo_url: string | null;
+    gst_number: string | null;
+    pan_number: string | null;
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+  };
 }
 
 export async function updateOrganizationDetails(input: OrganizationUpdateInput) {
@@ -193,8 +237,46 @@ export async function updateOrganizationDetails(input: OrganizationUpdateInput) 
     .update({
       name: input.name,
       code: input.code,
+      gst_number: input.gstNumber === undefined ? undefined : input.gstNumber || null,
+      pan_number: input.panNumber === undefined ? undefined : input.panNumber || null,
+      phone: input.phone === undefined ? undefined : input.phone || null,
+      email: input.email === undefined ? undefined : input.email || null,
+      address: input.address === undefined ? undefined : input.address || null,
     })
     .eq('id', organizationId);
 
   if (error) throw error;
+}
+
+export async function uploadOrganizationLogo(file: File) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const organizationId = await resolveOrganizationId();
+  const dotIndex = file.name.lastIndexOf('.');
+  const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
+  const path = `organization/${organizationId}/logo-${Date.now()}.${extension}`;
+
+  const { error: uploadError } = await supabase.storage
+    .from('branch-images')
+    .upload(path, file, { upsert: false });
+
+  if (uploadError) {
+    throw uploadError;
+  }
+
+  const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
+  const logoUrl = data.publicUrl;
+
+  const organizationsTable = supabase.from('organizations') as any;
+  const { error: updateError } = await organizationsTable
+    .update({ logo_url: logoUrl })
+    .eq('id', organizationId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  return logoUrl;
 }

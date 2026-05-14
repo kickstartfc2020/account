@@ -48,7 +48,7 @@ import {
   Receipt,
   CalendarDays
 } from 'lucide-react';
-import { useRenewals, usePackages, useStudents } from '@/hooks/useData';
+import { useRenewals, usePackages, useStudents, useInvoices } from '@/hooks/useData';
 import { format, addMonths, isSameDay, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-fns';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -57,11 +57,22 @@ import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { completeRenewal } from '@/lib/renewalWrite';
 import { computeBillingTotals } from '@/lib/billingMath';
+import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 
 export default function Renewals() {
   const { data: renewalsData } = useRenewals();
   const { data: packagesData } = usePackages();
   const { data: studentsData } = useStudents();
+  const { data: allInvoices } = useInvoices();
+
+  const todayStr = format(new Date(), 'yyyy-MM-dd');
+  const expiringCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expiring').length, [renewalsData]);
+  const expiredCount = React.useMemo(() => renewalsData.filter(r => r.status === 'expired').length, [renewalsData]);
+  const renewedTodayCount = React.useMemo(
+    () => allInvoices.filter((inv) => inv.date === todayStr && inv.status !== 'cancelled').length,
+    [allInvoices, todayStr]
+  );
 
   const [selectedRenewal, setSelectedRenewal] = React.useState<any>(null);
   const [isInvoiceOpen, setIsInvoiceOpen] = React.useState(false);
@@ -119,7 +130,11 @@ export default function Renewals() {
       setIsInvoiceOpen(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to complete renewal.';
-      console.error(error);
+      reportOperationalError('renewal.complete', 'Failed to complete renewal.', error, {
+        renewalId: selectedRenewal.id,
+        studentId: selectedStudent?.id ?? null,
+        packageId: selectedPackage?.id ?? null,
+      });
       toast.error(message);
     } finally {
       setIsProcessing(false);
@@ -184,7 +199,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-amber-600">Expiring in 7 Days</p>
-              <p className="text-2xl font-bold text-slate-900">8 Students</p>
+              <p className="text-2xl font-bold text-slate-900">{expiringCount} {expiringCount === 1 ? 'Student' : 'Students'}</p>
             </div>
           </CardContent>
         </Card>
@@ -195,7 +210,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-red-600">Expired Students</p>
-              <p className="text-2xl font-bold text-slate-900">4 Students</p>
+              <p className="text-2xl font-bold text-slate-900">{expiredCount} {expiredCount === 1 ? 'Student' : 'Students'}</p>
             </div>
           </CardContent>
         </Card>
@@ -206,7 +221,7 @@ export default function Renewals() {
             </div>
             <div>
               <p className="text-sm font-medium text-emerald-600">Renewed Today</p>
-              <p className="text-2xl font-bold text-slate-900">5 Renewals</p>
+              <p className="text-2xl font-bold text-slate-900">{renewedTodayCount} {renewedTodayCount === 1 ? 'Renewal' : 'Renewals'}</p>
             </div>
           </CardContent>
         </Card>
@@ -261,13 +276,7 @@ export default function Renewals() {
               >
                 <CalendarDays className="mr-2 h-4 w-4 text-slate-400" />
                 {dateRange?.from ? (
-                  dateRange.to ? (
-                    <>
-                      {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
-                    </>
-                  ) : (
-                    format(dateRange.from, "MMM dd, yyyy")
-                  )
+                  dateRange.to ? formatDateRangeDMY(dateRange.from, dateRange.to) : formatDateDMY(dateRange.from)
                 ) : (
                   <span>Expiry Date Range</span>
                 )}
@@ -358,7 +367,7 @@ export default function Renewals() {
                 </TableCell>
                 <TableCell>
                   <div className="flex flex-col">
-                    <span className="font-medium">{renewal.expiryDate}</span>
+                    <span className="font-medium">{formatDateDMY(renewal.expiryDate)}</span>
                     <span className={`text-[10px] font-bold uppercase ${renewal.daysLeft < 0 ? 'text-red-500' : 'text-amber-600'}`}>
                       {renewal.daysLeft < 0 ? `${Math.abs(renewal.daysLeft)} days ago` : `${renewal.daysLeft} days left`}
                     </span>
@@ -526,7 +535,7 @@ export default function Renewals() {
               <div className="text-right space-y-1">
                 <h1 className="text-4xl font-display font-black text-slate-100 uppercase tracking-widest">Invoice</h1>
                 <p className="text-sm font-semibold text-slate-900">#{generatedInvoiceNumber || '---'}</p>
-                <p className="text-xs text-slate-500">Date: {format(new Date(), 'MMM dd, yyyy')}</p>
+                <p className="text-xs text-slate-500">Date: {formatDateDMY(new Date())}</p>
               </div>
             </div>
 

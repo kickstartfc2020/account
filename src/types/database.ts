@@ -14,6 +14,12 @@ export type Database = {
           id: string;
           name: string;
           code: string;
+          logo_url: string | null;
+          gst_number: string | null;
+          pan_number: string | null;
+          phone: string | null;
+          email: string | null;
+          address: string | null;
           status: 'active' | 'inactive' | 'archived';
           archived_at: string | null;
           created_at: string;
@@ -23,6 +29,12 @@ export type Database = {
           id?: string;
           name: string;
           code: string;
+          logo_url?: string | null;
+          gst_number?: string | null;
+          pan_number?: string | null;
+          phone?: string | null;
+          email?: string | null;
+          address?: string | null;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
           created_at?: string;
@@ -32,6 +44,12 @@ export type Database = {
           id?: string;
           name?: string;
           code?: string;
+          logo_url?: string | null;
+          gst_number?: string | null;
+          pan_number?: string | null;
+          phone?: string | null;
+          email?: string | null;
+          address?: string | null;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
           created_at?: string;
@@ -115,6 +133,7 @@ export type Database = {
         Row: {
           id: string;
           organization_id: string;
+          branch_id: string | null;
           name: string;
           status: 'active' | 'inactive' | 'archived';
           archived_at: string | null;
@@ -124,6 +143,7 @@ export type Database = {
         Insert: {
           id?: string;
           organization_id: string;
+          branch_id?: string | null;
           name: string;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
@@ -133,6 +153,7 @@ export type Database = {
         Update: {
           id?: string;
           organization_id?: string;
+          branch_id?: string | null;
           name?: string;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
@@ -144,6 +165,7 @@ export type Database = {
         Row: {
           id: string;
           organization_id: string;
+          branch_id: string | null;
           sport_id: string;
           name: string;
           billing_type: 'one_time' | 'recurring_monthly';
@@ -158,6 +180,7 @@ export type Database = {
         Insert: {
           id?: string;
           organization_id: string;
+          branch_id?: string | null;
           sport_id: string;
           name: string;
           billing_type: 'one_time' | 'recurring_monthly';
@@ -172,6 +195,7 @@ export type Database = {
         Update: {
           id?: string;
           organization_id?: string;
+          branch_id?: string | null;
           sport_id?: string;
           name?: string;
           billing_type?: 'one_time' | 'recurring_monthly';
@@ -180,6 +204,35 @@ export type Database = {
           gst_percent?: number;
           status?: 'active' | 'inactive' | 'archived';
           archived_at?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      gst_rates: {
+        Row: {
+          id: string;
+          organization_id: string;
+          name: string;
+          percentage: number;
+          is_default: boolean;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          name: string;
+          percentage: number;
+          is_default?: boolean;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          name?: string;
+          percentage?: number;
+          is_default?: boolean;
           created_at?: string;
           updated_at?: string;
         };

@@ -14,11 +14,8 @@ import {
   Phone,
   ReceiptText
 } from 'lucide-react';
-import { 
-  ACADEMY_DETAILS,
-  GST_RATES
-} from '@/data/mockData';
-import { useStudents, usePackages, useSports, useLocations, useInvoices } from '@/hooks/useData';
+import { useAcademyDetails } from '@/hooks/useAcademyDetails';
+import { useStudents, usePackages, useSports, useLocations, useInvoices, useGstRates } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -31,10 +28,12 @@ import {
   SelectValue 
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { format } from 'date-fns';
+import { formatDateDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export default function CreateInvoice() {
   const { data: students } = useStudents();
@@ -42,46 +41,76 @@ export default function CreateInvoice() {
   const { data: sports } = useSports();
   const { data: locations } = useLocations();
   const { data: invoices } = useInvoices();
+  const { data: gstRates } = useGstRates();
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const sportId = searchParams.get('sportId');
-  const sport = sports.find(s => s.id === sportId) || sports[0];
+  const sport = sports.find((s) => s.id === sportId) || sports[0] || null;
+  const activeSportId = sportId || sport?.id || '';
   
-  const defaultGstRatePercentage = GST_RATES.find(r => r.isDefault)?.percentage.toString() || '18';
+  const academy = useAcademyDetails();
+  const defaultGstRatePercentage = React.useMemo(() => {
+    const configuredDefault = gstRates.find((rate) => rate.isDefault) ?? gstRates[0];
+    return configuredDefault ? String(configuredDefault.percentage) : '18';
+  }, [gstRates]);
   
   const [selectedStudentId, setSelectedStudentId] = React.useState<string | null>(null);
   const [searchTerm, setSearchTerm] = React.useState('');
   const [paymentMode, setPaymentMode] = React.useState('QR');
   const [gstRate, setGstRate] = React.useState(defaultGstRatePercentage);
   const [isGenerated, setIsGenerated] = React.useState(false);
+  const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
+  const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
+  const submitRequestKeyRef = React.useRef<string | null>(null);
+
+  React.useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.rpc('current_branch_id').then(({ data }) => {
+      setCurrentBranchId((data as string | null) ?? null);
+    });
+  }, []);
+
+  React.useEffect(() => {
+    setGstRate(defaultGstRatePercentage);
+  }, [defaultGstRatePercentage]);
+
+  React.useEffect(() => {
+    submitRequestKeyRef.current = null;
+  }, [selectedStudentId, amount, discount, gstRate, paymentMode, activeSportId]);
   
   const selectedStudent = students.find(s => s.id === selectedStudentId);
 
+  const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
+
   React.useEffect(() => {
     if (selectedStudent) {
-      const pkg = packages.find(p => p.id === selectedStudent.packageId) || packages.find(p => p.sportId === sportId);
+      const pkg = packages.find((p) => p.id === selectedStudent.packageId) || packages.find((p) => p.sportId === activeSportId);
       if (pkg) setAmount(pkg.price.toString());
     }
-  }, [selectedStudentId, sportId, selectedStudent, packages]);
+  }, [selectedStudentId, activeSportId, selectedStudent, packages]);
   
   const filteredStudents = students.filter(s => 
-    s.sportId === sportId && 
+    s.sportId === activeSportId && 
     (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm))
   );
   
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
-  const branch = locations[0];
-  const studentPackage = packages.find(p => p.id === selectedStudent?.packageId) || packages.find(p => p.sportId === sportId);
+  const branch =
+    locations.find((location) => location.id === selectedStudent?.locationId) ??
+    locations.find((location) => location.id === currentBranchId) ??
+    locations[0] ??
+    null;
+  const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) || packages.find((p) => p.sportId === activeSportId);
   const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
     useInvoiceCalculator({
       amount,
       discount,
       gstRate,
-      academyName: ACADEMY_DETAILS.name,
+      academyName: academy.name,
       invoiceCount: invoices.length,
     });
 
@@ -104,12 +133,28 @@ export default function CreateInvoice() {
   };
 
   const handleFinalizeInvoice = async () => {
+    if (!sport) {
+      toast.error('No sport available for invoice. Please create a sport first.');
+      return;
+    }
+
     if (!selectedStudent || !studentPackage) {
       toast.error('Select a student and package before finalizing.');
       return;
     }
 
+    // Open app route synchronously from user click to avoid popup blockers and blank-tab fallbacks.
+    const preparingUrl = `${window.location.origin}/invoices/view/pending?generated=1&creating=1`;
+    const invoiceTab = window.open(preparingUrl, '_blank');
+    if (!invoiceTab) {
+      toast.error('Please allow popups to open the generated invoice in a new tab.');
+      return;
+    }
+
     setIsSaving(true);
+    if (!submitRequestKeyRef.current) {
+      submitRequestKeyRef.current = `inv:${selectedStudent.id}:${Date.now()}:${crypto.randomUUID()}`;
+    }
 
     try {
       const result = await finalizeInvoiceWrite({
@@ -127,21 +172,49 @@ export default function CreateInvoice() {
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
         preferredBranchId: selectedStudent.locationId,
+        requestKey: submitRequestKeyRef.current,
       });
 
       setIsGenerated(true);
+      setGeneratedInvoiceNumber(result.invoiceNumber);
       toast.success('Invoice finalized and payment recorded.');
-      navigate(`/invoices/view/${result.invoiceNumber}`);
+      if (!result.invoiceNumber) {
+        throw new Error('Generated invoice number is missing. Please retry.');
+      }
+      const invoiceUrl = `${window.location.origin}/invoices/view/${encodeURIComponent(result.invoiceNumber)}?generated=1`;
+      if (!invoiceTab.closed) {
+        invoiceTab.location.replace(invoiceUrl);
+        invoiceTab.focus();
+      } else {
+        window.open(invoiceUrl, '_blank');
+      }
     } catch (err) {
+      invoiceTab.close();
+      reportOperationalError('invoice.finalize', 'Failed to finalize invoice.', err, {
+        studentId: selectedStudent.id,
+        packageId: studentPackage.id,
+      });
       const message = err instanceof Error ? err.message : 'Failed to finalize invoice.';
       toast.error(message);
+      submitRequestKeyRef.current = null;
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm">
+    !sport ? (
+      <div className="-mx-8 -my-8 flex-1 bg-white border rounded-2xl shadow-sm p-8 flex flex-col items-start justify-center gap-4">
+        <h1 className="text-2xl font-display font-bold text-slate-900">Create Invoice</h1>
+        <p className="text-slate-600 max-w-xl">
+          No sport is available for this branch yet, so invoice creation cannot start.
+        </p>
+        <Button onClick={() => navigate('/sports')} className="bg-indigo-600 hover:bg-indigo-700">
+          Go To Sports
+        </Button>
+      </div>
+    ) : (
+    <div className="-mx-8 -my-8 flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm">
       {/* Header */}
       <div className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 print:hidden">
         <div className="flex items-center gap-4">
@@ -151,7 +224,7 @@ export default function CreateInvoice() {
           <div className="h-8 w-[1px] bg-gray-200"></div>
           <div>
             <h1 className="text-xl font-bold font-display text-gray-900 tracking-tight">Create Invoice</h1>
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{sport.name} Department • {branch.name}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{sport.name} Department • {branch?.name ?? 'No Branch'}</p>
           </div>
         </div>
         
@@ -230,16 +303,12 @@ export default function CreateInvoice() {
               <h2 className="text-sm font-bold uppercase tracking-widest text-kickstart-forest">Payment QR Code</h2>
               <div className="p-6 bg-white rounded-3xl border-2 border-kickstart-lime/20 shadow-sm flex flex-col items-center gap-4 text-center group transition-all hover:bg-kickstart-lime/5">
                 <div className="p-3 bg-white rounded-2xl shadow-inner border border-gray-50 relative group-hover:scale-105 transition-transform">
-                  <img 
-                    src={ACADEMY_DETAILS.upiQrCode} 
-                    alt="UPI QR Code" 
-                    className="w-32 h-32 rounded-lg"
-                  />
+                  <div className="w-32 h-32 rounded-lg bg-gray-50 border border-gray-100" aria-label="UPI QR placeholder" />
                   <div className="absolute inset-0 bg-kickstart-lime/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none" />
                 </div>
                 <div className="space-y-1">
                   <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em] leading-none">Scan with any UPI App</p>
-                  <p className="text-sm font-black text-gray-900 tracking-tight">{ACADEMY_DETAILS.upiId}</p>
+                  <p className="text-sm font-black text-gray-900 tracking-tight">—</p>
                 </div>
               </div>
             </div>
@@ -310,11 +379,15 @@ export default function CreateInvoice() {
                       <SelectValue placeholder="GST" />
                     </SelectTrigger>
                     <SelectContent>
-                      {GST_RATES.map(rate => (
-                        <SelectItem key={rate.id} value={rate.percentage.toString()}>
-                          {rate.name}
-                        </SelectItem>
-                      ))}
+                      {gstRates.length > 0 ? (
+                        gstRates.map((rate) => (
+                          <SelectItem key={rate.id} value={String(rate.percentage)}>
+                            {rate.name} ({rate.percentage}%)
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="18">GST 18%</SelectItem>
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -322,16 +395,10 @@ export default function CreateInvoice() {
 
               <Button 
                 className="w-full bg-kickstart-forest hover:bg-kickstart-forest/90 shadow-lg shadow-kickstart-forest/10 h-12 font-bold text-xs uppercase tracking-wider"
-                onClick={() => {
-                  if (!selectedStudentId) {
-                    toast.error("Please select a student first");
-                    return;
-                  }
-                  setIsGenerated(true);
-                  toast.success('Invoice Generated & Marked as PAID');
-                }}
+                onClick={() => void handleFinalizeInvoice()}
+                disabled={isSaving}
               >
-                {isGenerated ? 'Regenerate Invoice' : 'Generate Invoice'}
+                {isSaving ? 'Saving...' : isGenerated ? 'Regenerate Invoice' : 'Generate Invoice'}
               </Button>
             </div>
           </div>
@@ -351,7 +418,7 @@ export default function CreateInvoice() {
                   </div>
                   <div className="p-3 bg-gray-50 rounded-xl border border-gray-100">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Expires</p>
-                    <p className="text-xs font-bold text-indigo-600 mt-1">{format(new Date(selectedStudent.expiryDate), 'MMM dd, yyyy')}</p>
+                    <p className="text-xs font-bold text-indigo-600 mt-1">{formatSafeDate(selectedStudent.expiryDate)}</p>
                   </div>
                 </div>
               </div>
@@ -363,7 +430,7 @@ export default function CreateInvoice() {
                     <div key={inv.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100 text-xs">
                       <div>
                         <p className="font-bold text-gray-900">₹{inv.total.toLocaleString()}</p>
-                        <p className="text-[10px] text-gray-500">{format(new Date(inv.date), 'MMM dd, yyyy')}</p>
+                        <p className="text-[10px] text-gray-500">{formatDateDMY(inv.date)}</p>
                       </div>
                       <Badge variant="outline" className="text-[9px] bg-green-50 text-green-700 border-green-100">Success</Badge>
                     </div>
@@ -377,8 +444,8 @@ export default function CreateInvoice() {
         </div>
 
         {/* Right Side: Invoice Preview */}
-        <div className="flex-1 bg-gray-100/50 px-16 py-10 overflow-y-auto flex flex-col items-center scrollbar-hide">
-          <div className="w-full max-w-[750px] bg-white shadow-2xl shadow-gray-200 rounded-2xl overflow-hidden print:shadow-none print:rounded-none">
+        <div className="flex-1 bg-gray-100/50 px-[10px] pt-[10px] pb-0 overflow-y-auto flex flex-col items-stretch scrollbar-hide">
+          <div className="w-full bg-white shadow-2xl shadow-gray-200 rounded-none overflow-hidden print:shadow-none print:rounded-none">
             {/* Invoice Top Brand Bar */}
             <div className="h-3 bg-kickstart-lime flex">
               <div className="w-1/3 h-full bg-kickstart-forest"></div>
@@ -390,18 +457,21 @@ export default function CreateInvoice() {
               {/* Invoice Header */}
               <div className="flex justify-between items-start">
                 <div className="flex items-center gap-5">
-                  <div className="w-16 h-16 rounded-xl bg-kickstart-forest flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-kickstart-forest/20 shrink-0 border-2 border-kickstart-yellow">
-                    {ACADEMY_DETAILS.logoText}
+                  <div className="w-16 h-16 rounded-xl bg-kickstart-forest flex items-center justify-center text-white text-2xl font-bold shadow-lg shadow-kickstart-forest/20 shrink-0 border-2 border-kickstart-yellow overflow-hidden">
+                    {academy.logoUrl ? (
+                      <img src={academy.logoUrl} alt="Organization logo" width={64} height={64} className="w-full h-full object-cover" />
+                    ) : (
+                      academy.logoText || '?'
+                    )}
                   </div>
                   <div className="space-y-0.5">
-                    <h2 className="text-xl font-display font-black text-gray-900 uppercase tracking-tight leading-tight">{ACADEMY_DETAILS.name}</h2>
+                    <h2 className="text-xl font-display font-black text-gray-900 uppercase tracking-tight leading-tight">{academy.name}</h2>
                     <p className="text-kickstart-forest font-bold text-xs leading-none flex items-center gap-1.5 uppercase tracking-wide">
                       <ReceiptText className="w-3.5 h-3.5 text-kickstart-lime" />
-                      {branch.name} Branch
+                      {branch?.name ?? 'No Branch'} Branch
                     </p>
                     <div className="pt-1.5 flex flex-col gap-0.5">
-                      <p className="text-[10px] text-gray-500 max-w-[200px] leading-tight">{ACADEMY_DETAILS.address}</p>
-                      <p className="text-[10px] font-bold text-gray-700">Reg No: {ACADEMY_DETAILS.registrationNumber}</p>
+                      <p className="text-[10px] font-bold text-gray-700">{academy.code}</p>
                     </div>
                   </div>
                 </div>
@@ -411,11 +481,11 @@ export default function CreateInvoice() {
                   <div className="space-y-1">
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Invoice Number</span>
-                      <span className="text-xs font-bold text-kickstart-forest">{isGenerated ? invoiceNumber : '---'}</span>
+                      <span className="text-xs font-bold text-kickstart-forest">{isGenerated ? (generatedInvoiceNumber || invoiceNumber) : '---'}</span>
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Date Issued</span>
-                      <span className="text-xs font-bold text-gray-900">{format(new Date(), 'MMMM dd, yyyy')}</span>
+                      <span className="text-xs font-bold text-gray-900">{formatDateDMY(new Date())}</span>
                     </div>
                   </div>
                 </div>
@@ -425,19 +495,19 @@ export default function CreateInvoice() {
               <div className="grid grid-cols-4 gap-4 p-6 bg-kickstart-lime/5 rounded-2xl border border-kickstart-lime/10">
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-kickstart-forest/50 uppercase tracking-widest">GST Number</span>
-                  <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.gstNumber}</span>
+                  <span className="text-xs font-bold text-gray-900">{academy.gstNumber || '—'}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-kickstart-forest/50 uppercase tracking-widest">PAN Number</span>
-                  <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.panNumber}</span>
+                  <span className="text-xs font-bold text-gray-900">{academy.panNumber || '—'}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-kickstart-forest/50 uppercase tracking-widest">Contact</span>
-                  <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.phone}</span>
+                  <span className="text-xs font-bold text-gray-900">{academy.phone || '—'}</span>
                 </div>
                 <div className="flex flex-col">
                   <span className="text-[9px] font-bold text-kickstart-forest/50 uppercase tracking-widest">Email</span>
-                  <span className="text-xs font-bold text-gray-900">{ACADEMY_DETAILS.email}</span>
+                  <span className="text-xs font-bold text-gray-900">{academy.email || '—'}</span>
                 </div>
               </div>
 
@@ -456,7 +526,7 @@ export default function CreateInvoice() {
                       <p className="text-sm font-medium text-gray-500">{selectedStudent.phone}</p>
                       <div className="pt-2">
                         <Badge variant="outline" className="bg-kickstart-lime/10 text-kickstart-forest border-kickstart-lime/20 text-[10px] font-bold">
-                          STUDENT ID: {selectedStudent.id.padStart(4, '0')}
+                          STUDENT ID: {selectedStudent.refId || selectedStudent.id}
                         </Badge>
                       </div>
                     </div>
@@ -595,8 +665,8 @@ export default function CreateInvoice() {
             <div className="h-12 bg-kickstart-forest flex items-center justify-between px-14 relative overflow-hidden">
                <div className="absolute top-0 right-0 w-24 h-full bg-kickstart-lime skew-x-[30deg] translate-x-12 opacity-50" />
                <div className="absolute top-0 right-0 w-12 h-full bg-kickstart-yellow skew-x-[30deg] translate-x-3 opacity-30" />
-               <p className="text-[8px] font-black text-kickstart-lime uppercase tracking-[0.25em] z-10">{ACADEMY_DETAILS.footerText}</p>
-               <p className="text-[8px] font-black text-white uppercase tracking-[0.4em] z-10">{branch.name} Branch</p>
+               <p className="text-[8px] font-black text-kickstart-lime uppercase tracking-[0.25em] z-10">{academy.name}</p>
+              <p className="text-[8px] font-black text-white uppercase tracking-[0.4em] z-10">{branch?.name ?? 'No Branch'} Branch</p>
             </div>
         </div>
 
@@ -618,6 +688,7 @@ export default function CreateInvoice() {
         </div>
       </div>
     </div>
+    )
   );
 }
 

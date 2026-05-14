@@ -20,7 +20,15 @@ export default function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
 
   if (!user) return <Navigate to="/login" replace />;
 
-  if (allowedRoles && (!role || !allowedRoles.includes(role))) {
+  if (allowedRoles && role === null) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <p className="text-sm text-slate-500">Loading profile...</p>
+      </div>
+    );
+  }
+
+  if (allowedRoles && role && !allowedRoles.includes(role)) {
     return <Navigate to={role === 'super_admin' ? '/super-admin' : '/'} replace />;
   }
 

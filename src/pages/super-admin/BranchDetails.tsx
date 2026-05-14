@@ -32,6 +32,8 @@ import { setBranchStatus } from '@/lib/adminManagement';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { format, formatDistanceToNow, parseISO, subMonths } from 'date-fns';
 import { useAuth } from '@/auth/AuthProvider';
+import { formatDateDMY } from '@/lib/utils';
+import { reportOperationalError } from '@/lib/observability';
 
 const SPORT_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444'];
 
@@ -79,6 +81,10 @@ export default function BranchDetails() {
     const { error } = await supabase.auth.resetPasswordForEmail(location.email);
     setIsResetting(false);
     if (error) {
+      reportOperationalError('auth.password_reset', 'Failed to send branch password reset email.', error, {
+        branchId: location?.id ?? null,
+        email: location?.email ?? null,
+      });
       toast.error(error.message);
       return;
     }
@@ -163,7 +169,7 @@ export default function BranchDetails() {
   const creationDateLabel = React.useMemo(() => {
     const raw = locationMeta?.createdAt || locationMeta?.created_at;
     if (!raw) return 'Not available';
-    return format(parseISO(raw), 'MMM dd, yyyy');
+    return formatDateDMY(raw, 'Not available');
   }, [locationMeta?.createdAt, locationMeta?.created_at]);
 
   const planTypeLabel = locationMeta?.planType || locationMeta?.plan_type || 'Not available';
@@ -229,7 +235,7 @@ export default function BranchDetails() {
                       axisLine={false}
                       tickLine={false}
                       tick={{ fontSize: 12, fill: '#94a3b8' }}
-                      tickFormatter={(v) => (v < 1000 ? `₹${v}` : `₹${(v / 1000).toFixed(1)}k`)}
+                      tickFormatter={(v) => `₹${Math.round(v).toLocaleString('en-IN')}`}
                     />
                     <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0/0.1)' }} />
                     <Bar dataKey="revenue" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={40} />

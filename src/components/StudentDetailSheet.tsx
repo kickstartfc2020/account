@@ -21,7 +21,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Student } from '@/types';
 import { useInvoices, usePackages } from '@/hooks/useData';
-import { format, addDays, parseISO } from 'date-fns';
+import { addMonths, parseISO } from 'date-fns';
+import { formatDateDMY } from '@/lib/utils';
 
 interface StudentDetailSheetProps {
   student: Student;
@@ -38,19 +39,59 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
     return allInvoices.filter(inv => inv.studentId === student.id);
   }, [student.id, allInvoices]);
 
-  const totalPaid = React.useMemo(() => {
-    return studentInvoices.reduce((sum, inv) => sum + inv.total, 0);
+  const activeStudentInvoices = React.useMemo(() => {
+    return studentInvoices.filter((inv) => inv.status !== 'cancelled');
   }, [studentInvoices]);
 
+  const totalPaid = React.useMemo(() => {
+    return activeStudentInvoices.reduce((sum, inv) => sum + inv.total, 0);
+  }, [activeStudentInvoices]);
+
   const pkg = allPackages.find(p => p.id === student.packageId);
+  const packageBadgeText = pkg
+    ? `${pkg.name} • ₹${Math.round(pkg.price).toLocaleString('en-IN')}`
+    : student.packageName;
+
+  const computedStartDate = React.useMemo(() => {
+    try {
+      if (!student.joinedAt) return 'N/A';
+      return formatDateDMY(parseISO(student.joinedAt), 'N/A');
+    } catch {
+      return formatDateDMY(student.joinedAt, 'N/A');
+    }
+  }, [student.joinedAt]);
+
+  const computedExpiryDate = React.useMemo(() => {
+    try {
+      if (!student.joinedAt) return formatDateDMY(student.expiryDate, 'N/A');
+      const start = parseISO(student.joinedAt);
+      const durationMonths = Math.max(pkg?.durationMonths ?? 1, 1);
+      return formatDateDMY(addMonths(start, durationMonths), 'N/A');
+    } catch {
+      return formatDateDMY(student.expiryDate, 'N/A');
+    }
+  }, [student.joinedAt, student.expiryDate, pkg?.durationMonths]);
+
+  const latestInvoice = React.useMemo(() => {
+    if (studentInvoices.length === 0) return null;
+    return [...studentInvoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+  }, [studentInvoices]);
   
   const nextRenewalDate = React.useMemo(() => {
     try {
-      return format(addDays(parseISO(student.expiryDate), 1), 'yyyy-MM-dd');
+      if (!student.joinedAt) return 'N/A';
+      const start = parseISO(student.joinedAt);
+
+      if (pkg?.billingType === 'one-time') {
+        const isFullyPaid = latestInvoice?.status === 'completed' && (latestInvoice.balanceAmount ?? 0) <= 0;
+        return isFullyPaid ? 'N/A' : formatDateDMY(addMonths(start, 1), 'N/A');
+      }
+
+      return formatDateDMY(addMonths(start, 1), 'N/A');
     } catch {
       return 'N/A';
     }
-  }, [student.expiryDate]);
+  }, [student.joinedAt, pkg?.billingType, latestInvoice]);
 
   return (
     <Sheet onOpenChange={(open) => !open && setView('details')}>
@@ -67,13 +108,8 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
             </Avatar>
             <div>
               <SheetTitle className="text-2xl font-display font-bold">{student.name}</SheetTitle>
-              <Badge className={
-                student.status === 'active' ? 'bg-emerald-100 text-emerald-700' :
-                student.status === 'expiring' ? 'bg-amber-100 text-amber-700' :
-                student.status === 'unknown' ? 'bg-slate-100 text-slate-600' :
-                'bg-red-100 text-red-700'
-              }>
-                {student.status.toUpperCase()}
+              <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200">
+                {packageBadgeText}
               </Badge>
             </div>
           </div>
@@ -114,11 +150,11 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
                 <div className="grid grid-cols-2 gap-4">
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Start Date</p>
-                    <p className="text-sm font-bold text-slate-900 mt-1">{student.joinedAt}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1">{computedStartDate}</p>
                   </div>
                   <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
                     <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expiry Date</p>
-                    <p className="text-sm font-bold text-slate-900 mt-1">{student.expiryDate}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1">{computedExpiryDate}</p>
                   </div>
                   <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
                     <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Sport</p>
@@ -162,12 +198,12 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b pb-2">
                 <h4 className="font-display font-bold text-slate-900">Payment History</h4>
-                <p className="text-xs font-medium text-slate-500">{studentInvoices.length} Transactions</p>
+                <p className="text-xs font-medium text-slate-500">{activeStudentInvoices.length} Transactions</p>
               </div>
 
-              {studentInvoices.length > 0 ? (
+              {activeStudentInvoices.length > 0 ? (
                 <div className="space-y-3">
-                  {studentInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(invoice => (
+                  {activeStudentInvoices.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(invoice => (
                     <div key={invoice.id} className="p-4 bg-white border border-slate-100 rounded-2xl hover:border-indigo-200 transition-colors group">
                       <div className="flex justify-between items-start mb-3">
                         <div>
@@ -182,7 +218,7 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
                       <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                         <div className="flex items-center gap-1.5 text-slate-500">
                           <Calendar className="w-3 h-3" />
-                          <span className="text-[11px] font-medium">{invoice.date}</span>
+                          <span className="text-[11px] font-medium">{formatDateDMY(invoice.date)}</span>
                         </div>
                         <Button 
                           variant="ghost" 

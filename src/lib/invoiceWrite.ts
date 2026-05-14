@@ -1,4 +1,5 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { reportOperationalError } from '@/lib/observability';
 
 type PaymentMethod = 'cash' | 'card' | 'upi' | 'online' | 'bank_transfer';
 
@@ -18,6 +19,7 @@ type FinalizeInvoiceInput = {
   paymentModeLabel: string;
   preferredBranchId?: string | null;
   invoiceDate?: string;
+  requestKey?: string;
 };
 
 async function resolveTenantContext(studentId: string, preferredBranchId?: string | null) {
@@ -32,16 +34,25 @@ async function resolveTenantContext(studentId: string, preferredBranchId?: strin
     .single();
 
   if (studentError || !student) {
+    reportOperationalError('rpc.invoice.resolve_context', 'Failed to resolve student context for invoice write.', studentError, {
+      studentId,
+    });
     throw studentError ?? new Error('Unable to resolve student context.');
   }
 
   const { data: organizationId, error: organizationError } = await supabase.rpc('current_organization_id');
   if (organizationError) {
+    reportOperationalError('rpc.invoice.resolve_context', 'Failed to resolve current organization id.', organizationError, {
+      studentId,
+    });
     throw organizationError;
   }
 
   const { data: branchIdFromRpc, error: branchError } = await supabase.rpc('current_branch_id');
   if (branchError) {
+    reportOperationalError('rpc.invoice.resolve_context', 'Failed to resolve current branch id.', branchError, {
+      studentId,
+    });
     throw branchError;
   }
 
@@ -67,6 +78,11 @@ async function resolveTenantContext(studentId: string, preferredBranchId?: strin
     .single();
 
   if (branchLookupError || !branch) {
+    reportOperationalError('rpc.invoice.resolve_context', 'Resolved branch is outside active organization.', branchLookupError, {
+      studentId,
+      resolvedBranchId,
+      resolvedOrganizationId,
+    });
     throw branchLookupError ?? new Error('Branch does not belong to the active organization.');
   }
 
@@ -99,14 +115,29 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     p_payment_mode_label: input.paymentModeLabel,
     p_preferred_branch_id: branchId,
     p_invoice_date: input.invoiceDate ?? new Date().toISOString().slice(0, 10),
+    p_invoice_number: input.requestKey ?? null,
   });
 
   if (error || !data) {
+    reportOperationalError('rpc.invoice.finalize', 'finalize_invoice_write RPC failed.', error, {
+      studentId: input.studentId,
+      packageId: input.packageId,
+      sportId: input.sportId,
+      requestKey: input.requestKey ?? null,
+    });
     throw error ?? new Error('Failed to create invoice.');
   }
 
+  const row = Array.isArray(data) ? data[0] : data;
+  const invoiceId = (row as any)?.invoice_id as string | undefined;
+  const invoiceNumber = (row as any)?.invoice_number as string | undefined;
+
+  if (!invoiceId || !invoiceNumber) {
+    throw new Error('Failed to resolve generated invoice number from server response.');
+  }
+
   return {
-    invoiceId: (data as any).invoice_id as string,
-    invoiceNumber: (data as any).invoice_number as string,
+    invoiceId,
+    invoiceNumber,
   };
 }

@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useLocations, useSports } from '@/hooks/useData';
 import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   Dialog,
   DialogContent,
@@ -21,10 +23,29 @@ import {
 export function Header() {
   const { data: locations } = useLocations();
   const { data: sports } = useSports();
+  const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    supabase.rpc('current_branch_id').then(({ data }) => {
+      setCurrentBranchId((data as string | null) ?? null);
+    });
+  }, []);
+
+  const currentBranchName =
+    locations.find((location) => location.id === currentBranchId)?.name ??
+    locations[0]?.name ??
+    '';
+
   const handleCreateInvoiceClick = () => {
+    if (sports.length === 0) {
+      toast.error('No sports available. Please create a sport first.');
+      navigate('/sports');
+      return;
+    }
+
     if (sports.length === 1) {
       navigate(`/invoices/create?sportId=${sports[0].id}`);
     } else {
@@ -44,7 +65,7 @@ export function Header() {
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg">
           <span className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Branch:</span>
-          <span className="text-sm font-bold text-indigo-700">{locations[0]?.name ?? ''}</span>
+          <span className="text-sm font-bold text-indigo-700">{currentBranchName}</span>
         </div>
 
         <Button variant="ghost" size="icon" className="relative text-slate-500">

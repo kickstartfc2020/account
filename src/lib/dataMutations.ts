@@ -13,6 +13,17 @@ async function resolveOrganizationId() {
   return data as string;
 }
 
+async function resolveRole() {
+  if (!supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await supabase.rpc('current_role');
+  if (error || !data) {
+    throw error ?? new Error('Unable to resolve role context.');
+  }
+
+  return data as 'super_admin' | 'organization_admin' | 'branch_manager';
+}
+
 async function resolveBranchId(preferredBranchId?: string | null) {
   if (!supabase) throw new Error('Supabase is not configured.');
 
@@ -30,9 +41,16 @@ export async function createSport(input: { name: string }) {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
   const organizationId = await resolveOrganizationId();
+  const role = await resolveRole();
+  const branchId = role === 'branch_manager' ? await resolveBranchId() : null;
   const sportsTable = supabase.from('sports') as any;
   const { data, error } = await sportsTable
-    .insert({ organization_id: organizationId, name: input.name.trim(), status: 'active' })
+    .insert({
+      organization_id: organizationId,
+      branch_id: branchId,
+      name: input.name.trim(),
+      status: 'active',
+    })
     .select('*')
     .single();
 
@@ -60,13 +78,17 @@ export async function createPackage(input: {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
   const organizationId = await resolveOrganizationId();
+  const role = await resolveRole();
+  const branchId = role === 'branch_manager' ? await resolveBranchId() : null;
+  const billingType = input.billingType === 'recurring' ? 'recurring_monthly' : 'one_time';
   const packagesTable = supabase.from('packages') as any;
   const { data, error } = await packagesTable
     .insert({
       organization_id: organizationId,
+      branch_id: branchId,
       sport_id: input.sportId,
       name: input.name.trim(),
-      billing_type: input.billingType,
+      billing_type: billingType,
       duration_months: input.durationMonths,
       amount: input.amount,
       gst_percent: input.gstPercent,
@@ -92,12 +114,13 @@ export async function updatePackage(input: {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
   const organizationId = await resolveOrganizationId();
+  const billingType = input.billingType === 'recurring' ? 'recurring_monthly' : 'one_time';
   const packagesTable = supabase.from('packages') as any;
   const { error } = await packagesTable
     .update({
       sport_id: input.sportId,
       name: input.name.trim(),
-      billing_type: input.billingType,
+      billing_type: billingType,
       duration_months: input.durationMonths,
       amount: input.amount,
       gst_percent: input.gstPercent,
@@ -133,7 +156,11 @@ export async function createStudent(input: {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
   const organizationId = await resolveOrganizationId();
-  const branchId = await resolveBranchId(input.branchId ?? null);
+  const role = await resolveRole();
+  const branchId =
+    role === 'branch_manager'
+      ? await resolveBranchId()
+      : await resolveBranchId(input.branchId ?? null);
   const studentsTable = supabase.from('students') as any;
   const { data, error } = await studentsTable
     .insert({

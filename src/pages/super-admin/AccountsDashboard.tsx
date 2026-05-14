@@ -37,6 +37,7 @@ import { format, parseISO, isWithinInterval, startOfDay, endOfDay } from 'date-f
 import { DateRange } from "react-day-picker";
 import { createBranch, createBranchManagerAccount, rollbackBranchCreation, uploadBranchImage, deleteAuthUser } from '@/lib/adminManagement';
 import { toast } from 'sonner';
+import { formatDateDMY, formatDateRangeDMY } from '@/lib/utils';
 
 export default function AccountsDashboard() {
   const { data: locations = [] } = useLocations();
@@ -212,7 +213,7 @@ export default function AccountsDashboard() {
       { label: 'Total Branches', value: allLocations.length.toString(), icon: Building2, color: 'text-indigo-600', bg: 'bg-indigo-50' },
       { label: dateRange ? 'Joined in Range' : 'Global Students', value: (dateRange ? filteredStudents.length : allStudents.length).toString(), icon: Users, color: 'text-blue-600', bg: 'bg-blue-50' },
       { label: 'Active Regions', value: activeRegionCount.toString(), icon: MapPin, color: 'text-green-600', bg: 'bg-green-50' },
-      { label: dateRange ? 'Period Revenue' : 'Total Revenue', value: `₹${(totalRevenue / 1000).toFixed(1)}k`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
+      { label: dateRange ? 'Period Revenue' : 'Total Revenue', value: `₹${Math.round(totalRevenue).toLocaleString('en-IN')}`, icon: TrendingUp, color: 'text-purple-600', bg: 'bg-purple-50' },
     ];
   }, [dateRange, allStudents, allInvoices, activeRegionCount, allLocations.length]);
 
@@ -252,13 +253,7 @@ export default function AccountsDashboard() {
               >
                 <CalendarDays className="mr-2.5 h-4 w-4 text-indigo-500" />
                 {dateRange?.from ? (
-                  dateRange.to ? (
-                    <>
-                      {format(dateRange.from, "MMM dd")} - {format(dateRange.to, "MMM dd, yyyy")}
-                    </>
-                  ) : (
-                    format(dateRange.from, "MMM dd, yyyy")
-                  )
+                  dateRange.to ? formatDateRangeDMY(dateRange.from, dateRange.to) : formatDateDMY(dateRange.from)
                 ) : (
                   <span>Global Performance Range</span>
                 )}
