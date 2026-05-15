@@ -14,7 +14,7 @@ import {
   User,
   Hash
 } from 'lucide-react';
-import { useStudents, useSports, usePackages, useLocations } from '@/hooks/useData';
+import { useStudents, useSports, usePackages, useLocations, useStudentEnrollments } from '@/hooks/useData';
 import { 
   Table, 
   TableBody, 
@@ -54,21 +54,28 @@ import {
 import { toast } from 'sonner';
 
 import { StudentDetailSheet } from '@/components/StudentDetailSheet';
-import { createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
-import type { Student } from '@/types';
+import { addStudentEnrollment, createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
+import type { Student, StudentEnrollment } from '@/types';
 import { formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 
 export default function Students() {
+  const pageSize = 10;
   const { data: students } = useStudents();
   const { data: sports } = useSports();
   const { data: packages } = usePackages();
   const { data: locations } = useLocations();
+  const { data: studentEnrollments } = useStudentEnrollments();
   const [studentRows, setStudentRows] = React.useState<Student[]>(students);
+  const [enrollmentRows, setEnrollmentRows] = React.useState<StudentEnrollment[]>(studentEnrollments);
 
   React.useEffect(() => {
     setStudentRows(students);
   }, [students]);
+
+  React.useEffect(() => {
+    setEnrollmentRows(studentEnrollments);
+  }, [studentEnrollments]);
 
   const [searchTerm, setSearchTerm] = React.useState('');
   const [isEditDialogOpen, setIsEditDialogOpen] = React.useState(false);
@@ -76,6 +83,9 @@ export default function Students() {
   const [isSaving, setIsSaving] = React.useState(false);
   const [isArchiving, setIsArchiving] = React.useState(false);
   const [editingStudent, setEditingStudent] = React.useState<any>(null);
+  const [existingStudentSearch, setExistingStudentSearch] = React.useState('');
+  const [selectedExistingStudentId, setSelectedExistingStudentId] = React.useState<string | null>(null);
+  const [studentsPage, setStudentsPage] = React.useState(1);
   
   const [newStudent, setNewStudent] = React.useState({
     name: '',
@@ -101,50 +111,195 @@ export default function Students() {
   }, [newStudent.sportId, sports]);
 
   const selectedPackage = React.useMemo(() => {
-    return availablePackages.find(p => p.id === newStudent.packageId);
-  }, [availablePackages, newStudent.packageId]);
+    return packages.find(p => p.id === newStudent.packageId);
+  }, [packages, newStudent.packageId]);
 
-  const handleAddStudent = async () => {
-    if (!newStudent.name || !newStudent.sportId || !newStudent.packageId) {
+  const normalizePhone = (value: string) => value.replace(/\D/g, '');
+  const normalizedNewPhone = normalizePhone(newStudent.phone);
+  const normalizedNewEmail = newStudent.email.trim().toLowerCase();
+
+  const existingStudentMatches = React.useMemo(() => {
+    const term = existingStudentSearch.trim().toLowerCase();
+    if (!term) return [];
+
+    const searchPhone = normalizePhone(term);
+
+    return studentRows
+      .filter((student) => {
+        const name = student.name.toLowerCase();
+        const phone = normalizePhone(student.phone);
+        const refId = (student.refId || '').toLowerCase();
+        const id = student.id.toLowerCase();
+        return (
+          name.includes(term) ||
+          refId.includes(term) ||
+          id.includes(term) ||
+          phone.includes(searchPhone)
+        );
+      })
+      .slice(0, 6)
+      .map((student) => {
+        const name = student.name.toLowerCase();
+        const phone = normalizePhone(student.phone);
+        const refId = (student.refId || '').toLowerCase();
+        const id = student.id.toLowerCase();
+
+        const matchReason = name.includes(term)
+          ? 'Matched by name'
+          : refId.includes(term) || id.includes(term)
+            ? 'Matched by student ID'
+            : 'Matched by phone';
+
+        return { student, matchReason };
+      });
+  }, [existingStudentSearch, studentRows]);
+
+  const selectedExistingStudent = React.useMemo(() => {
+    if (!selectedExistingStudentId) return null;
+    return studentRows.find((student) => student.id === selectedExistingStudentId) ?? null;
+  }, [selectedExistingStudentId, studentRows]);
+
+  const existingStudentPackageIds = React.useMemo(() => {
+    if (!selectedExistingStudent) return new Set<string>();
+
+    const ids = new Set<string>();
+    enrollmentRows
+      .filter((enrollment) => enrollment.studentId === selectedExistingStudent.id)
+      .forEach((enrollment) => ids.add(enrollment.packageId));
+
+    if (selectedExistingStudent.packageId) {
+      ids.add(selectedExistingStudent.packageId);
+    }
+
+    return ids;
+  }, [selectedExistingStudent, enrollmentRows]);
+
+  const packageOptionsForSelection = React.useMemo(() => {
+    if (!selectedExistingStudent) return availablePackages;
+    return packages.filter((pkg) => !existingStudentPackageIds.has(pkg.id));
+  }, [selectedExistingStudent, packages, availablePackages, existingStudentPackageIds]);
+
+  const handlePickExistingStudent = (student: Student) => {
+    setSelectedExistingStudentId(student.id);
+    setExistingStudentSearch(student.phone);
+    setNewStudent((prev) => ({
+      ...prev,
+      name: student.name,
+      phone: student.phone,
+      email: student.email || '',
+      packageId: '',
+      sportId: '',
+    }));
+    toast.success(`Loaded details for ${student.name}`);
+  };
+
+  const handleSubmitStudent = async () => {
+    if (!newStudent.name || !newStudent.packageId || (!selectedExistingStudent && !newStudent.sportId)) {
       toast.error('Please fill in all required fields');
+      return;
+    }
+
+    const duplicatePhoneStudent = studentRows.find((student) => {
+      const samePhone = normalizePhone(student.phone) === normalizedNewPhone;
+      return samePhone && student.id !== selectedExistingStudent?.id;
+    });
+
+    const duplicateEmailStudent = normalizedNewEmail
+      ? studentRows.find((student) => student.email.trim().toLowerCase() === normalizedNewEmail && student.id !== selectedExistingStudent?.id)
+      : null;
+
+    if (!selectedExistingStudent && duplicatePhoneStudent) {
+      setSelectedExistingStudentId(duplicatePhoneStudent.id);
+      setExistingStudentSearch(duplicatePhoneStudent.phone);
+      setNewStudent((prev) => ({
+        ...prev,
+        name: duplicatePhoneStudent.name,
+        phone: duplicatePhoneStudent.phone,
+        email: duplicatePhoneStudent.email || '',
+      }));
+      toast.info('Phone number already exists. Loaded the existing student so you can update the package instead.');
+      return;
+    }
+
+    if (duplicateEmailStudent) {
+      toast.error('Email already exists for another student. Use the existing student record instead of creating a duplicate.');
       return;
     }
 
     setIsSaving(true);
     try {
-      const created = await createStudent({
-        name: newStudent.name,
-        phone: newStudent.phone,
-        email: newStudent.email,
-        sportId: newStudent.sportId,
-        packageId: newStudent.packageId,
-        branchId: locations[0]?.id,
-      });
-
-      const sport = sports.find((item) => item.id === newStudent.sportId);
       const pkg = packages.find((item) => item.id === newStudent.packageId);
-      const location = locations.find((item) => item.id === created.branch_id);
-      const studentId = created.id;
+      const resolvedSportId = selectedExistingStudent
+        ? (pkg?.sportId ?? newStudent.sportId)
+        : newStudent.sportId;
+      const sport = sports.find((item) => item.id === resolvedSportId);
+      if (selectedExistingStudent) {
+        await addStudentEnrollment({
+          studentId: selectedExistingStudent.id,
+          packageId: newStudent.packageId,
+        });
 
-      setStudentRows((prev) => [{
-        id: studentId,
-        refId: created.ref_id ?? '',
-        name: newStudent.name,
-        phone: newStudent.phone,
-        email: newStudent.email,
-        sportId: newStudent.sportId,
-        sportName: sport?.name ?? '',
-        packageId: newStudent.packageId,
-        packageName: pkg?.name ?? '',
-        locationId: location?.id ?? '',
-        locationName: location?.name ?? '',
-        expiryDate: new Date().toISOString().slice(0, 10),
-        status: 'active',
-        joinedAt: new Date().toISOString().slice(0, 10),
-      }, ...prev]);
+        setStudentRows((prev) => prev.map((student) => student.id === selectedExistingStudent.id ? {
+          ...student,
+          sportId: resolvedSportId,
+          sportName: sport?.name ?? student.sportName,
+          packageId: newStudent.packageId,
+          packageName: pkg?.name ?? student.packageName,
+        } : student));
 
-      toast.success(`${newStudent.name} registered successfully`);
+        setEnrollmentRows((prev) => {
+          const alreadyTracked = prev.some((item) => item.studentId === selectedExistingStudent.id && item.packageId === newStudent.packageId);
+          if (alreadyTracked || !pkg) return prev;
+
+          return [
+            ...prev,
+            {
+              studentId: selectedExistingStudent.id,
+              packageId: newStudent.packageId,
+              sportName: sport?.name ?? pkg.sportName,
+              packageName: pkg.name,
+              price: pkg.price,
+              status: 'pending',
+            },
+          ];
+        });
+
+        toast.success(`Package added for ${newStudent.name}`);
+      } else {
+        const created = await createStudent({
+          name: newStudent.name,
+          phone: newStudent.phone,
+          email: newStudent.email,
+          sportId: newStudent.sportId,
+          packageId: newStudent.packageId,
+          branchId: locations[0]?.id,
+        });
+
+        const location = locations.find((item) => item.id === created.branch_id);
+
+        setStudentRows((prev) => [{
+          id: created.id,
+          refId: created.ref_id ?? '',
+          name: newStudent.name,
+          phone: newStudent.phone,
+          email: newStudent.email,
+          sportId: newStudent.sportId,
+          sportName: sport?.name ?? '',
+          packageId: newStudent.packageId,
+          packageName: pkg?.name ?? '',
+          locationId: location?.id ?? '',
+          locationName: location?.name ?? '',
+          expiryDate: new Date().toISOString().slice(0, 10),
+          status: 'active',
+          joinedAt: new Date().toISOString().slice(0, 10),
+        }, ...prev]);
+
+        toast.success(`${newStudent.name} registered successfully`);
+      }
+
       setIsAddDialogOpen(false);
+      setSelectedExistingStudentId(null);
+      setExistingStudentSearch('');
       setNewStudent({
         name: '',
         email: '',
@@ -156,7 +311,7 @@ export default function Students() {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create student.';
-      reportOperationalError('student.create', 'Failed to create student.', error, {
+      reportOperationalError(selectedExistingStudent ? 'student.update' : 'student.create', selectedExistingStudent ? 'Failed to update student.' : 'Failed to create student.', error, {
         name: newStudent.name,
         sportId: newStudent.sportId,
         packageId: newStudent.packageId,
@@ -172,11 +327,34 @@ export default function Students() {
     setIsEditDialogOpen(true);
   };
 
-  const editAvailablePackages = React.useMemo(() => {
-    if (!editingStudent?.sportId) return packages;
-    const scoped = packages.filter((pkg) => pkg.sportId === editingStudent.sportId);
-    return scoped.length > 0 ? scoped : packages;
-  }, [editingStudent?.sportId, packages]);
+  const editingStudentPackages = React.useMemo(() => {
+    if (!editingStudent?.id) return [] as Array<{ sportName: string; packageName: string; price: number }>;
+
+    const uniqueByPackage = new Map<string, { sportName: string; packageName: string; price: number }>();
+    enrollmentRows
+      .filter((enrollment) => enrollment.studentId === editingStudent.id)
+      .forEach((enrollment) => {
+        if (!uniqueByPackage.has(enrollment.packageId)) {
+          uniqueByPackage.set(enrollment.packageId, {
+            sportName: enrollment.sportName,
+            packageName: enrollment.packageName,
+            price: enrollment.price,
+          });
+        }
+      });
+
+    const values = Array.from(uniqueByPackage.values());
+    if (values.length > 0) return values;
+
+    const fallbackPackage = packages.find((pkg) => pkg.id === editingStudent.packageId);
+    if (!fallbackPackage && !editingStudent.packageName) return [];
+
+    return [{
+      sportName: fallbackPackage?.sportName ?? editingStudent.sportName ?? 'Sport',
+      packageName: fallbackPackage?.name ?? editingStudent.packageName ?? 'Package',
+      price: fallbackPackage?.price ?? 0,
+    }];
+  }, [editingStudent?.id, editingStudent?.packageId, editingStudent?.packageName, editingStudent?.sportName, enrollmentRows, packages]);
 
   const handleUpdateStudent = async () => {
     if (!editingStudent) return;
@@ -230,12 +408,46 @@ export default function Students() {
     s.phone.includes(searchTerm)
   );
 
-  const isStudentActiveNow = (student: Student) => {
-    const start = new Date(student.joinedAt);
-    const end = new Date(student.expiryDate);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false;
-    const now = new Date();
-    return now >= start && now <= end;
+  React.useEffect(() => {
+    setStudentsPage(1);
+  }, [searchTerm]);
+
+  const studentsTotalPages = Math.max(1, Math.ceil(filteredStudents.length / pageSize));
+
+  React.useEffect(() => {
+    setStudentsPage((current) => Math.min(current, studentsTotalPages));
+  }, [studentsTotalPages]);
+
+  const paginatedStudents = React.useMemo(() => {
+    const startIndex = (studentsPage - 1) * pageSize;
+    return filteredStudents.slice(startIndex, startIndex + pageSize);
+  }, [filteredStudents, studentsPage]);
+
+  const getStudentSports = (studentId: string, fallbackSportName: string) => {
+    const sportsForStudent = enrollmentRows
+      .filter((enrollment) => enrollment.studentId === studentId)
+      .map((enrollment) => enrollment.sportName)
+      .filter(Boolean);
+
+    return Array.from(new Set(sportsForStudent)).length > 0
+      ? Array.from(new Set(sportsForStudent))
+      : fallbackSportName
+        ? [fallbackSportName]
+        : [];
+  };
+
+  const getStudentPackages = (studentId: string, fallbackPackageName: string) => {
+    const packagesForStudent = enrollmentRows
+      .filter((enrollment) => enrollment.studentId === studentId)
+      .map((enrollment) => enrollment.packageName)
+      .filter(Boolean);
+
+    const uniquePackages = Array.from(new Set(packagesForStudent));
+    return uniquePackages.length > 0
+      ? uniquePackages
+      : fallbackPackageName
+        ? [fallbackPackageName]
+        : [];
   };
 
   return (
@@ -259,12 +471,60 @@ export default function Students() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px] rounded-2xl">
               <DialogHeader>
-                <DialogTitle className="text-2xl font-display font-bold text-slate-900">Add New Student</DialogTitle>
-                <DialogDescription className="text-slate-500">
-                  Register a new student and enroll them in a package.
-                </DialogDescription>
+                <DialogTitle className="text-2xl font-display font-bold text-slate-900">{selectedExistingStudent ? 'Update Student Package' : 'Add New Student'}</DialogTitle>
+                {!selectedExistingStudent && (
+                  <DialogDescription className="text-slate-500">
+                    Register a new student and enroll them in a package.
+                  </DialogDescription>
+                )}
               </DialogHeader>
               <div className="grid gap-6 py-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="existing-student-search" className="text-xs font-bold uppercase text-slate-500">Existing Student (Optional)</Label>
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                    <Input
+                      id="existing-student-search"
+                      placeholder="Search by name, student ID, or phone"
+                      value={existingStudentSearch}
+                      onChange={(e) => {
+                        setExistingStudentSearch(e.target.value);
+                        setSelectedExistingStudentId(null);
+                      }}
+                      className="pl-10 h-11 rounded-xl"
+                    />
+                  </div>
+
+                  {existingStudentSearch.trim() && selectedExistingStudentId === null && (
+                    <div className="rounded-xl border border-slate-200 bg-white max-h-44 overflow-y-auto">
+                      {existingStudentMatches.length > 0 ? (
+                        existingStudentMatches.map(({ student, matchReason }) => (
+                          <button
+                            type="button"
+                            key={student.id}
+                            onClick={() => handlePickExistingStudent(student)}
+                            className="w-full px-3 py-2 text-left hover:bg-slate-50 border-b border-slate-100 last:border-0"
+                          >
+                            <p className="text-sm font-semibold text-slate-800">{student.name}</p>
+                            <p className="text-xs text-slate-500">{student.phone}</p>
+                            <p className="text-[10px] font-semibold uppercase tracking-wide text-indigo-500">{matchReason}</p>
+                          </button>
+                        ))
+                      ) : (
+                        <p className="px-3 py-2 text-xs text-slate-500">No student found for this search.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {selectedExistingStudent && (
+                    <div className="flex items-center justify-between rounded-xl border border-emerald-100 bg-emerald-50 px-3 py-2">
+                      <p className="text-xs text-emerald-700">
+                        Using existing student: <span className="font-bold">{selectedExistingStudent.name}</span> ({selectedExistingStudent.refId || selectedExistingStudent.id})
+                      </p>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex flex-col gap-2">
                   <Label htmlFor="add-name" className="text-xs font-bold uppercase text-slate-500">Student Name</Label>
                   <div className="relative">
@@ -275,16 +535,18 @@ export default function Students() {
                       value={newStudent.name}
                       onChange={(e) => setNewStudent({...newStudent, name: e.target.value})}
                       className="pl-10 h-11 rounded-xl"
+                      disabled={Boolean(selectedExistingStudent)}
                     />
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-bold uppercase text-slate-500">Select Sport</Label>
+                    <Label className="text-xs font-bold uppercase text-slate-500">{selectedExistingStudent ? 'Current Sport (Reference)' : 'Select Sport'}</Label>
                     <Select 
                       value={newStudent.sportId} 
                       onValueChange={(v) => setNewStudent({...newStudent, sportId: v, packageId: ''})}
+                      disabled={Boolean(selectedExistingStudent)}
                     >
                       <SelectTrigger className="h-11 rounded-xl">
                         <SelectValue placeholder="Select Sport">
@@ -300,11 +562,23 @@ export default function Students() {
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-bold uppercase text-slate-500">Select Package</Label>
+                    <Label className="text-xs font-bold uppercase text-slate-500">{selectedExistingStudent ? 'Select New Package (Any Sport)' : 'Select Package'}</Label>
                     <Select 
                       value={newStudent.packageId} 
-                      onValueChange={(v) => setNewStudent({...newStudent, packageId: v})}
-                      disabled={!newStudent.sportId}
+                      onValueChange={(v) => {
+                        if (selectedExistingStudent) {
+                          const selected = packages.find((item) => item.id === v);
+                          setNewStudent({
+                            ...newStudent,
+                            packageId: v,
+                            sportId: selected?.sportId ?? newStudent.sportId,
+                          });
+                          return;
+                        }
+
+                        setNewStudent({...newStudent, packageId: v});
+                      }}
+                      disabled={!selectedExistingStudent && !newStudent.sportId}
                     >
                       <SelectTrigger className="h-11 rounded-xl">
                         <SelectValue placeholder="Select Package">
@@ -312,11 +586,14 @@ export default function Students() {
                         </SelectValue>
                       </SelectTrigger>
                       <SelectContent className="rounded-xl">
-                        {availablePackages.map(p => (
-                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                        {packageOptionsForSelection.map(p => (
+                          <SelectItem key={p.id} value={p.id}>{selectedExistingStudent ? `${p.sportName} - ${p.name}` : p.name}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
+                    {selectedExistingStudent && (
+                      <p className="text-[11px] text-slate-400">Already enrolled packages are hidden.</p>
+                    )}
                   </div>
                 </div>
 
@@ -360,6 +637,7 @@ export default function Students() {
                         value={newStudent.phone}
                         onChange={(e) => setNewStudent({...newStudent, phone: e.target.value})}
                         className="pl-10 h-11 rounded-xl"
+                        disabled={Boolean(selectedExistingStudent)}
                       />
                     </div>
                   </div>
@@ -374,6 +652,7 @@ export default function Students() {
                         value={newStudent.email}
                         onChange={(e) => setNewStudent({...newStudent, email: e.target.value})}
                         className="pl-10 h-11 rounded-xl"
+                        disabled={Boolean(selectedExistingStudent)}
                       />
                     </div>
                   </div>
@@ -394,7 +673,7 @@ export default function Students() {
               </div>
               <DialogFooter className="gap-3">
                 <Button variant="outline" onClick={() => setIsAddDialogOpen(false)} className="h-11 px-6 rounded-xl font-bold text-slate-500 border-slate-200">Cancel</Button>
-                <Button onClick={handleAddStudent} className="h-11 px-8 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95" disabled={isSaving}>{isSaving ? 'Saving...' : 'Register Student'}</Button>
+                <Button onClick={handleSubmitStudent} className="h-11 px-8 rounded-xl font-bold bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all active:scale-95" disabled={isSaving}>{isSaving ? 'Saving...' : selectedExistingStudent ? 'Update Student' : 'Register Student'}</Button>
               </DialogFooter>
             </DialogContent>
           </Dialog>
@@ -425,18 +704,16 @@ export default function Students() {
             <TableRow className="hover:bg-transparent">
               <TableHead className="w-[280px]">Student Name</TableHead>
               <TableHead>Contact</TableHead>
-              <TableHead>Sport & Location</TableHead>
+              <TableHead>Sports</TableHead>
               <TableHead>Current Package</TableHead>
-              <TableHead>Expiry Date</TableHead>
-              <TableHead>Status</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredStudents.map((student) => (
+            {paginatedStudents.map((student) => (
               <TableRow key={student.id} className="cursor-pointer hover:bg-slate-50 transition-colors">
                 <TableCell>
-                  <StudentDetailSheet student={student}>
+                  <StudentDetailSheet student={student} studentEnrollments={enrollmentRows.filter((enrollment) => enrollment.studentId === student.id)}>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-9 w-9 border">
                         <AvatarFallback className="bg-indigo-50 text-indigo-600 font-semibold">
@@ -454,33 +731,22 @@ export default function Students() {
                   <p className="text-sm font-medium">{student.phone}</p>
                 </TableCell>
                 <TableCell>
-                  <p className="text-sm font-medium">{student.sportName}</p>
-                  <p className="text-xs text-slate-500">{student.locationName}</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {getStudentSports(student.id, student.sportName).map((sportName) => (
+                      <Badge key={`${student.id}-${sportName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
+                        {sportName}
+                      </Badge>
+                    ))}
+                  </div>
                 </TableCell>
                 <TableCell>
-                  <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
-                    {student.packageName}
-                  </Badge>
-                </TableCell>
-                <TableCell>
-                  <p className="text-sm font-medium">{formatDateDMY(student.expiryDate, 'N/A')}</p>
-                </TableCell>
-                <TableCell>
-                  {(() => {
-                    const isActiveNow = isStudentActiveNow(student);
-                    return (
-                  <Badge
-                    className={
-                      isActiveNow
-                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-                        : 'bg-slate-50 text-slate-600 border-slate-100'
-                    }
-                    variant="outline"
-                  >
-                    {isActiveNow ? 'Active' : 'Inactive'}
-                  </Badge>
-                    );
-                  })()}
+                  <div className="flex flex-wrap gap-1.5">
+                    {getStudentPackages(student.id, student.packageName).map((packageName) => (
+                      <Badge key={`${student.id}-${packageName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
+                        {packageName}
+                      </Badge>
+                    ))}
+                  </div>
                 </TableCell>
                 <TableCell>
                    <DropdownMenu>
@@ -491,8 +757,6 @@ export default function Students() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem onClick={() => handleEditProfile(student)}>Edit Profile</DropdownMenuItem>
-                      <DropdownMenuItem>Renew Membership</DropdownMenuItem>
-                      <DropdownMenuItem className="text-red-500" onClick={() => void handleArchiveStudent(student)}>Deactivate</DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -500,6 +764,33 @@ export default function Students() {
             ))}
           </TableBody>
         </Table>
+
+        <div className="flex flex-col gap-3 border-t bg-slate-50/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-medium text-slate-500">
+            Showing {filteredStudents.length === 0 ? 0 : (studentsPage - 1) * pageSize + 1}-{Math.min(studentsPage * pageSize, filteredStudents.length)} of {filteredStudents.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStudentsPage((page) => Math.max(1, page - 1))}
+              disabled={studentsPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-xs font-semibold text-slate-500">
+              Page {studentsPage} of {studentsTotalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setStudentsPage((page) => Math.min(studentsTotalPages, page + 1))}
+              disabled={studentsPage === studentsTotalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </div>
       <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
         <DialogContent className="sm:max-w-[425px] rounded-2xl">
@@ -563,29 +854,19 @@ export default function Students() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label className="text-xs font-bold uppercase text-slate-500">Package</Label>
-                <Select
-                  value={editingStudent.packageId || ''}
-                  onValueChange={(value) => {
-                    const selected = packages.find((pkg) => pkg.id === value);
-                    setEditingStudent({
-                      ...editingStudent,
-                      packageId: value,
-                      packageName: selected?.name ?? editingStudent.packageName,
-                    });
-                  }}
-                >
-                  <SelectTrigger className="h-11">
-                    <SelectValue placeholder="Select package" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {editAvailablePackages.map((pkg) => (
-                      <SelectItem key={pkg.id} value={pkg.id}>
-                        {pkg.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label className="text-xs font-bold uppercase text-slate-500">Enrolled Packages</Label>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 min-h-11">
+                  {editingStudentPackages.length > 0 ? (
+                    editingStudentPackages.map((pkg) => (
+                      <Badge key={`${pkg.sportName}-${pkg.packageName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 text-[10px] uppercase">
+                        {pkg.sportName} - {pkg.packageName} - ₹{Math.round(pkg.price).toLocaleString('en-IN')}
+                      </Badge>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">No package history found.</p>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400">This profile shows all sport and package enrollments for this student.</p>
               </div>
             </div>
           )}

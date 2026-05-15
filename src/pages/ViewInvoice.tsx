@@ -444,6 +444,34 @@ export default function ViewInvoice() {
                   </div>
                 </div>
               </div>
+
+              {(academy.upiId || academy.upiQrUrl) && (
+                <div className="p-6 bg-[#1A3C34]/5 rounded-2xl border border-[#1A3C34]/10 space-y-4">
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-[0.2em] text-[#1A3C34]">Pay via UPI</h4>
+                    <p className="text-[10px] font-medium text-gray-500 mt-1">Scan the QR code or use the UPI ID below.</p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    {academy.upiQrUrl ? (
+                      <img
+                        src={academy.upiQrUrl}
+                        alt="UPI QR code"
+                        width={96}
+                        height={96}
+                        className="h-24 w-24 rounded-2xl border border-gray-200 object-cover bg-white"
+                      />
+                    ) : (
+                      <div className="h-24 w-24 rounded-2xl border border-dashed border-gray-200 bg-white flex items-center justify-center text-[9px] font-bold uppercase tracking-widest text-gray-300 text-center px-2">
+                        QR Not Set
+                      </div>
+                    )}
+                    <div className="space-y-2 min-w-0">
+                      <p className="text-xs font-bold uppercase tracking-widest text-gray-500">UPI ID</p>
+                      <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || '—'}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Items Table */}

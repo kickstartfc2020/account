@@ -7,6 +7,7 @@ type UseInvoiceCalculatorInput = {
   gstRate: string;
   academyName: string;
   invoiceCount: number;
+  invoiceYear: number;
 };
 
 export function useInvoiceCalculator({
@@ -15,6 +16,7 @@ export function useInvoiceCalculator({
   gstRate,
   academyName,
   invoiceCount,
+  invoiceYear,
 }: UseInvoiceCalculatorInput) {
   return React.useMemo(() => {
     const parsedAmount = Number.parseFloat(amount) || 0;
@@ -23,8 +25,8 @@ export function useInvoiceCalculator({
 
     const totals = computeBillingTotals(parsedAmount, parsedGst, parsedDiscount);
 
-    const sequenceNumber = (invoiceCount + 1).toString().padStart(4, '0');
-    const invoiceNumber = `INV-${sequenceNumber}`;
+    const sequenceNumber = (invoiceCount + 1).toString().padStart(2, '0');
+    const invoiceNumber = `INV-${invoiceYear}-${sequenceNumber}`;
 
     return {
       subtotal: totals.subtotal,
@@ -34,5 +36,5 @@ export function useInvoiceCalculator({
       total: totals.totalAmount,
       invoiceNumber,
     };
-  }, [academyName, amount, discount, gstRate, invoiceCount]);
+  }, [academyName, amount, discount, gstRate, invoiceCount, invoiceYear]);
 }

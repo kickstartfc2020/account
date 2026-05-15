@@ -17,6 +17,8 @@ type BranchManagerInput = {
 type OrganizationUpdateInput = {
   name: string;
   code: string;
+  upiId?: string;
+  upiQrUrl?: string;
   gstNumber?: string;
   panNumber?: string;
   phone?: string;
@@ -41,6 +43,12 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Failed to read logo file.'));
     reader.readAsDataURL(file);
   });
+}
+
+function buildOrganizationAssetPath(prefix: string, organizationId: string, file: File) {
+  const dotIndex = file.name.lastIndexOf('.');
+  const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
+  return `${prefix}/${organizationId}/${Date.now()}.${extension}`;
 }
 
 async function resolveProfileContext(): Promise<ProfileContext> {
@@ -358,6 +366,8 @@ export async function getOrganizationDetails() {
     name: string;
     code: string;
     logo_url: string | null;
+    upi_id: string | null;
+    upi_qr_url: string | null;
     gst_number: string | null;
     pan_number: string | null;
     phone: string | null;
@@ -378,6 +388,8 @@ export async function updateOrganizationDetails(input: OrganizationUpdateInput) 
     .update({
       name: input.name,
       code: input.code,
+      upi_id: input.upiId === undefined ? undefined : input.upiId || null,
+      upi_qr_url: input.upiQrUrl === undefined ? undefined : input.upiQrUrl || null,
       gst_number: input.gstNumber === undefined ? undefined : input.gstNumber || null,
       pan_number: input.panNumber === undefined ? undefined : input.panNumber || null,
       phone: input.phone === undefined ? undefined : input.phone || null,
@@ -395,9 +407,7 @@ export async function uploadOrganizationLogo(file: File) {
   }
 
   const organizationId = await resolveOrganizationId();
-  const dotIndex = file.name.lastIndexOf('.');
-  const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
-  const path = `organization/${organizationId}/logo-${Date.now()}.${extension}`;
+  const path = buildOrganizationAssetPath('organization-logo', organizationId, file);
 
   let logoUrl: string;
 
@@ -426,4 +436,41 @@ export async function uploadOrganizationLogo(file: File) {
   }
 
   return logoUrl;
+}
+
+export async function uploadOrganizationQrCode(file: File) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const organizationId = await resolveOrganizationId();
+  const path = buildOrganizationAssetPath('organization-qr', organizationId, file);
+
+  let qrUrl: string;
+
+  const { error: uploadError } = await supabase.storage
+    .from('branch-images')
+    .upload(path, file, { upsert: false });
+
+  if (uploadError) {
+    if (!isRlsError(uploadError)) {
+      throw uploadError;
+    }
+
+    qrUrl = await fileToDataUrl(file);
+  } else {
+    const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
+    qrUrl = data.publicUrl;
+  }
+
+  const organizationsTable = supabase.from('organizations') as any;
+  const { error: updateError } = await organizationsTable
+    .update({ upi_qr_url: qrUrl })
+    .eq('id', organizationId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  return qrUrl;
 }

@@ -136,6 +136,10 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     throw new Error('Failed to resolve generated invoice number from server response.');
   }
 
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:invoices:changed'));
+  }
+
   return {
     invoiceId,
     invoiceNumber,

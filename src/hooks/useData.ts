@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
-import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate } from '@/types';
+import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate, StudentEnrollment } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
 import { reportOperationalError } from '@/lib/observability';
 
@@ -261,47 +261,59 @@ export function useInvoices() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    setLoading(true);
-    supabase
-      .from('invoices')
-      .select(
-        'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
-      )
-      .is('archived_at', null)
-      .order('invoice_date', { ascending: false })
-      .then(({ data: rows, error }) => {
-        setLoading(false);
-        if (error) {
-          reportOperationalError('query.invoices', 'Failed to load invoices.', error);
-          return;
-        }
-          const r = (rows ?? []) as any[];
-          setData(
-            r.map((inv) => {
-              const student = inv.students as { name: string; ref_id: string | null } | null;
-              const branch = inv.branches as { name: string } | null;
-              const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
-              const items = (inv.invoice_items as Array<{ description: string }>) ?? [];
-              const completedPayment = payments.find((p) => p.status === 'completed');
-              return {
-                id: inv.invoice_number as string,
-                studentId: inv.student_id as string,
-                studentRefId: student?.ref_id ?? undefined,
-                studentName: student?.name ?? '',
-                amount: inv.subtotal as number,
-                tax: inv.tax_total as number,
-                total: inv.total_amount as number,
-                status: (inv.status as Invoice['status']) ?? 'unpaid',
-                balanceAmount: (inv.balance_amount as number) ?? 0,
-                paymentMode: (completedPayment?.method ?? 'cash') as Invoice['paymentMode'],
-                date: inv.invoice_date as string,
-                locationId: inv.branch_id as string,
-                locationName: branch?.name ?? '',
-                packageName: items[0]?.description ?? '',
-              };
-            })
-        );
-      });
+    const loadInvoices = () => {
+      setLoading(true);
+      supabase
+        .from('invoices')
+        .select(
+          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
+        )
+        .is('archived_at', null)
+        .order('invoice_date', { ascending: false })
+        .then(({ data: rows, error }) => {
+          setLoading(false);
+          if (error) {
+            reportOperationalError('query.invoices', 'Failed to load invoices.', error);
+            return;
+          }
+            const r = (rows ?? []) as any[];
+            setData(
+              r.map((inv) => {
+                const student = inv.students as { name: string; ref_id: string | null } | null;
+                const branch = inv.branches as { name: string } | null;
+                const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
+                const items = (inv.invoice_items as Array<{ description: string }>) ?? [];
+                const completedPayment = payments.find((p) => p.status === 'completed');
+                return {
+                  id: inv.invoice_number as string,
+                  studentId: inv.student_id as string,
+                  studentRefId: student?.ref_id ?? undefined,
+                  studentName: student?.name ?? '',
+                  amount: inv.subtotal as number,
+                  tax: inv.tax_total as number,
+                  total: inv.total_amount as number,
+                  status: (inv.status as Invoice['status']) ?? 'unpaid',
+                  balanceAmount: (inv.balance_amount as number) ?? 0,
+                  paymentMode: (completedPayment?.method ?? 'cash') as Invoice['paymentMode'],
+                  date: inv.invoice_date as string,
+                  locationId: inv.branch_id as string,
+                  locationName: branch?.name ?? '',
+                  packageName: items[0]?.description ?? '',
+                };
+              })
+          );
+        });
+    };
+
+    loadInvoices();
+
+    const refreshEventName = 'app:invoices:changed';
+    const refreshListener = () => loadInvoices();
+    window.addEventListener(refreshEventName, refreshListener);
+
+    return () => {
+      window.removeEventListener(refreshEventName, refreshListener);
+    };
   }, []);
 
   return { data, loading };
@@ -340,6 +352,7 @@ export function useRenewals() {
                 id: rv.id as string,
                 refId: (rv.ref_id ?? '') as string,
                 studentId: rv.student_id as string,
+                packageId: (rv.package_id ?? '') as string,
               studentName: student?.name ?? '',
               sportName: pkg?.sports?.name ?? '',
               currentPackageName: pkg?.name ?? '',
@@ -351,6 +364,121 @@ export function useRenewals() {
             })
           );
       });
+  }, []);
+
+  return { data, loading };
+}
+
+export function useStudentEnrollments() {
+  const [data, setData] = useState<StudentEnrollment[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    setLoading(true);
+    Promise.all([
+      supabase
+        .from('renewals')
+        .select('student_id, package_id, status, packages(name, amount, sports(name))')
+        .order('student_id'),
+      supabase
+        .from('invoices')
+        .select('student_id, status, invoice_items(package_id, package_id, description, line_total, packages(name, amount, sports(name)))')
+        .is('archived_at', null)
+        .order('student_id'),
+      supabase
+        .from('students')
+        .select('id, current_package_id, packages(name, amount, sports(name))')
+        .order('id'),
+    ]).then(([renewalsResult, invoicesResult, studentsResult]) => {
+      setLoading(false);
+
+      if (renewalsResult.error) {
+        reportOperationalError('query.student_enrollments', 'Failed to load renewal enrollments.', renewalsResult.error);
+        return;
+      }
+
+      if (invoicesResult.error) {
+        reportOperationalError('query.student_enrollments', 'Failed to load invoice enrollments.', invoicesResult.error);
+        return;
+      }
+
+      if (studentsResult.error) {
+        reportOperationalError('query.student_enrollments', 'Failed to load student package enrollments.', studentsResult.error);
+      }
+
+      const enrollmentMap = new Map<string, StudentEnrollment>();
+
+      const upsertEnrollment = (row: any, fallbackStatus: StudentEnrollment['status']) => {
+        const packageId = row.package_id as string | undefined;
+        if (!packageId) return;
+
+        const pkg = row.packages as { name: string; amount: number; sports: { name: string } | null } | null;
+        const key = `${row.student_id}:${packageId}:${pkg?.name ?? ''}`;
+        const nextEnrollment: StudentEnrollment = {
+          studentId: row.student_id as string,
+          packageId,
+          packageName: pkg?.name ?? '',
+          sportName: pkg?.sports?.name ?? '',
+          price: Number(pkg?.amount ?? 0),
+          status: ((row.status ?? fallbackStatus) as StudentEnrollment['status']),
+        };
+
+        const existing = enrollmentMap.get(key);
+        if (!existing || existing.status === 'cancelled') {
+          enrollmentMap.set(key, nextEnrollment);
+        }
+      };
+
+      for (const row of (renewalsResult.data ?? []) as any[]) {
+        upsertEnrollment(row, 'pending');
+      }
+
+      for (const invoice of (invoicesResult.data ?? []) as any[]) {
+        const invoiceItems = (invoice.invoice_items ?? []) as Array<{
+          package_id: string | null;
+          packages: { name: string; amount: number; sports: { name: string } | null } | null;
+        }>;
+
+        invoiceItems.forEach((item) => {
+          if (!item.package_id) return;
+          const key = `${invoice.student_id}:${item.package_id}:${item.packages?.name ?? ''}`;
+          const nextEnrollment: StudentEnrollment = {
+            studentId: invoice.student_id as string,
+            packageId: item.package_id,
+            packageName: item.packages?.name ?? '',
+            sportName: item.packages?.sports?.name ?? '',
+            price: Number(item.packages?.amount ?? 0),
+            status: invoice.status === 'completed' ? 'completed' : 'pending',
+          };
+
+          const existing = enrollmentMap.get(key);
+          if (!existing || existing.status !== 'completed') {
+            enrollmentMap.set(key, nextEnrollment);
+          }
+        });
+      }
+
+      for (const student of (studentsResult.data ?? []) as any[]) {
+        const packageId = student.current_package_id as string | null;
+        if (!packageId) continue;
+
+        const pkg = student.packages as { name: string; amount: number; sports: { name: string } | null } | null;
+        const key = `${student.id}:${packageId}:${pkg?.name ?? ''}`;
+        if (enrollmentMap.has(key)) continue;
+
+        enrollmentMap.set(key, {
+          studentId: student.id as string,
+          packageId,
+          packageName: pkg?.name ?? '',
+          sportName: pkg?.sports?.name ?? '',
+          price: Number(pkg?.amount ?? 0),
+          status: 'pending',
+        });
+      }
+
+      setData(Array.from(enrollmentMap.values()));
+    });
   }, []);
 
   return { data, loading };

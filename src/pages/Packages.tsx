@@ -58,6 +58,7 @@ import { normalizePackageDuration, type RecurringInterval } from '@/lib/packageD
 import { reportOperationalError } from '@/lib/observability';
 
 export default function Packages() {
+  const pageSize = 10;
   const { data: dbPackages } = usePackages();
   const { data: sports } = useSports();
   const [packages, setPackages] = React.useState<Package[]>(() => dbPackages);
@@ -79,6 +80,18 @@ export default function Packages() {
   const [editRecurringInterval, setEditRecurringInterval] = React.useState<RecurringInterval>('month');
   const [editRecurringCount, setEditRecurringCount] = React.useState('1');
   const [packageType, setPackageType] = React.useState<"one-time" | "recurring">("one-time");
+  const [packagesPage, setPackagesPage] = React.useState(1);
+
+  const packagesTotalPages = Math.max(1, Math.ceil(packages.length / pageSize));
+
+  React.useEffect(() => {
+    setPackagesPage((current) => Math.min(current, packagesTotalPages));
+  }, [packagesTotalPages]);
+
+  const paginatedPackages = React.useMemo(() => {
+    const startIndex = (packagesPage - 1) * pageSize;
+    return packages.slice(startIndex, startIndex + pageSize);
+  }, [packages, packagesPage]);
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -258,10 +271,12 @@ export default function Packages() {
                         </SelectContent>
                       </Select>
                     </div>
-                    <div className="grid gap-2">
-                      <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
-                      <Input id="duration" name="duration" type="number" placeholder="1" defaultValue="1" min="1" className="h-11 rounded-xl" required />
-                    </div>
+                    {packageType !== 'recurring' && (
+                      <div className="grid gap-2">
+                        <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
+                        <Input id="duration" name="duration" type="number" placeholder="1" defaultValue="1" min="1" className="h-11 rounded-xl" required />
+                      </div>
+                    )}
                   </div>
 
                 <div className="grid gap-2">
@@ -302,7 +317,7 @@ export default function Packages() {
                         </Select>
                       </div>
                       <div className="grid gap-2">
-                        <Label className="text-[10px] font-bold uppercase text-indigo-600">Count</Label>
+                        <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration</Label>
                         <Input type="number" className="bg-white h-10" placeholder="1" min="1" value={newRecurringCount} onChange={(e) => setNewRecurringCount(e.target.value)} required />
                       </div>
                     </div>
@@ -344,7 +359,7 @@ export default function Packages() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {packages.map((pkg) => (
+            {paginatedPackages.map((pkg) => (
               <TableRow key={pkg.id} className="group hover:bg-slate-50/50 transition-colors">
                 <TableCell>
                   <p className="font-bold text-slate-900 underline decoration-indigo-200 underline-offset-4">{pkg.name}</p>
@@ -404,6 +419,33 @@ export default function Packages() {
             ))}
           </TableBody>
         </Table>
+
+        <div className="flex flex-col gap-3 border-t bg-slate-50/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-medium text-slate-500">
+            Showing {packages.length === 0 ? 0 : (packagesPage - 1) * pageSize + 1}-{Math.min(packagesPage * pageSize, packages.length)} of {packages.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPackagesPage((page) => Math.max(1, page - 1))}
+              disabled={packagesPage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-xs font-semibold text-slate-500">
+              Page {packagesPage} of {packagesTotalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPackagesPage((page) => Math.min(packagesTotalPages, page + 1))}
+              disabled={packagesPage === packagesTotalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Edit Dialog */}
@@ -452,17 +494,19 @@ export default function Packages() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="edit-duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
-                  <Input 
-                    id="edit-duration" 
-                    type="number" 
-                    value={editingPackage?.durationMonths || ''} 
-                    onChange={(e) => editingPackage && setEditingPackage({...editingPackage, durationMonths: parseInt(e.target.value)})}
-                    className="h-11 rounded-xl"
-                    required 
-                  />
-                </div>
+                {(editingPackage?.billingType ?? packageType) !== 'recurring' && (
+                  <div className="grid gap-2">
+                    <Label htmlFor="edit-duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
+                    <Input 
+                      id="edit-duration" 
+                      type="number" 
+                      value={editingPackage?.durationMonths || ''} 
+                      onChange={(e) => editingPackage && setEditingPackage({...editingPackage, durationMonths: parseInt(e.target.value)})}
+                      className="h-11 rounded-xl"
+                      required 
+                    />
+                  </div>
+                )}
               </div>
 
               <div className="grid gap-2">
@@ -513,7 +557,7 @@ export default function Packages() {
                       </Select>
                     </div>
                     <div className="grid gap-2">
-                      <Label className="text-[10px] font-bold uppercase text-indigo-600">Count</Label>
+                      <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration</Label>
                       <Input type="number" className="bg-white h-9 rounded-lg" placeholder="1" min="1" value={editRecurringCount} onChange={(e) => setEditRecurringCount(e.target.value)} />
                     </div>
                   </div>
