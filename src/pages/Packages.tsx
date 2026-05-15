@@ -82,7 +82,8 @@ export default function Packages() {
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
+    const formData = new FormData(formElement);
     const name = String(formData.get('name') ?? '').trim();
     const durationMonths = Number(formData.get('duration') ?? 0);
     const amount = Number(formData.get('price') ?? 0);
@@ -130,7 +131,7 @@ export default function Packages() {
       setNewSportId('');
       setNewRecurringInterval('month');
       setNewRecurringCount('1');
-      e.currentTarget.reset();
+      formElement.reset();
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create package.';
       reportOperationalError('package.create', 'Failed to create package.', error, { name, sportId: newSportId });

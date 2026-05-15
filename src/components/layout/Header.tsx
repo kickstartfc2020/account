@@ -48,7 +48,7 @@ export function Header() {
     }
 
     if (sports.length === 1) {
-      navigate(`/invoices/create?sportId=${sports[0].id}`);
+      navigate('/invoices/create');
     } else {
       setIsSportDialogOpen(true);
     }

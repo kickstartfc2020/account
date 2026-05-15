@@ -41,6 +41,7 @@ import {
 } from "@/components/ui/dialog";
 
 import { useNavigate } from 'react-router-dom';
+import { useStudents, usePackages, useInvoices } from '@/hooks/useData';
 
 const icons: Record<string, any> = {
   Trophy,
@@ -56,6 +57,9 @@ const icons: Record<string, any> = {
 export default function Sports() {
   const navigate = useNavigate();
   const { data: dbSports } = useSports();
+  const { data: students } = useStudents();
+  const { data: packages } = usePackages();
+  const { data: invoices } = useInvoices();
   const [sports, setSports] = React.useState<Sport[]>(() =>
     dbSports.map(s => ({ ...s, status: s.status ?? 'active' }))
   );
@@ -71,6 +75,25 @@ export default function Sports() {
   
   const [newSportName, setNewSportName] = React.useState('');
   const [selectedIcon, setSelectedIcon] = React.useState('Trophy');
+
+  const sportsWithStats = React.useMemo(() => {
+    const studentSportById = new Map(students.map((student) => [student.id, student.sportId]));
+
+    return sports.map((sport) => {
+      const studentsCount = students.filter((student) => student.sportId === sport.id).length;
+      const packagesCount = packages.filter((pkg) => pkg.sportId === sport.id).length;
+      const revenue = invoices
+        .filter((invoice) => invoice.status !== 'cancelled' && studentSportById.get(invoice.studentId) === sport.id)
+        .reduce((sum, invoice) => sum + (invoice.total ?? 0), 0);
+
+      return {
+        ...sport,
+        studentsCount,
+        packagesCount,
+        revenue,
+      };
+    });
+  }, [sports, students, packages, invoices]);
 
   const handleAddSport = async () => {
     if (!newSportName.trim()) {
@@ -204,7 +227,7 @@ export default function Sports() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {sports.map((sport, i) => {
+        {sportsWithStats.map((sport, i) => {
           const Icon = icons[sport.icon] || Trophy;
           const isInactive = sport.status === 'inactive';
 
