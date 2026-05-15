@@ -1,6 +1,6 @@
--- Migration: Cleanup all business data from production
+-- Cleanup all business data from production
 -- Truncates all data tables while preserving schema and super_admin capability
--- Run this to reset the database to a clean state
+-- Run this manually from Supabase SQL editor when a full reset is needed.
 
 -- Disable foreign key constraints temporarily
 set session_replication_role = replica;
@@ -24,7 +24,7 @@ delete from public.profiles;
 -- Delete organizations (but can recreate after new super_admin login)
 delete from public.organizations;
 
--- Reset ref_counters
+-- Reset ref counters
 truncate public.ref_counters cascade;
 
 -- Reset sequences to start fresh
@@ -36,10 +36,3 @@ alter sequence public.seq_profile restart with 1;
 
 -- Re-enable foreign key constraints
 set session_replication_role = default;
-
--- Note: To create a new super_admin, use the following template:
--- 1. Create auth user via Supabase dashboard or API
--- 2. Insert profile record:
---    INSERT INTO public.profiles (id, role, full_name, status)
---    VALUES ('<auth-user-id>', 'super_admin', 'Admin Name', 'active');
--- 3. Or run the companion setup script in supabase/cleanup/create_super_admin.sql

@@ -46,8 +46,9 @@ export default function CreateInvoice() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const sportId = searchParams.get('sportId');
-  const sport = sports.find((s) => s.id === sportId) || sports[0] || null;
-  const activeSportId = sportId || sport?.id || '';
+  const sportFromQuery = sports.find((s) => s.id === sportId) ?? null;
+  const sport = sportFromQuery ?? sports[0] ?? null;
+  const activeSportId = sport?.id ?? '';
   
   const academy = useAcademyDetails();
   const defaultGstRatePercentage = React.useMemo(() => {

@@ -4,7 +4,7 @@
 This folder contains scripts to completely reset the production database and set up new super admin credentials.
 
 ## Files
-- `cleanup_all_data.sql` - Migration that truncates all business data
+- `cleanup_all_data.sql` - Manual SQL script that truncates all business data
 - `create_super_admin.sql` - Setup script to create new super admin profile
 
 ## When to Use
@@ -13,13 +13,10 @@ This folder contains scripts to completely reset the production database and set
 
 ## Step-by-Step Process
 
-### 1. Run the Cleanup Migration
+### 1. Run the Cleanup Script
 ```bash
-# Option A: Via Supabase CLI (if set up)
-supabase migration up
-
-# Option B: Manual execution
-# Copy contents of `supabase/migrations/20260515000000_cleanup_all_data.sql`
+# Manual execution
+# Copy contents of `supabase/cleanup/cleanup_all_data.sql`
 # Paste into Supabase SQL editor and execute
 ```
 

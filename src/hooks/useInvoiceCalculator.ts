@@ -23,9 +23,8 @@ export function useInvoiceCalculator({
 
     const totals = computeBillingTotals(parsedAmount, parsedGst, parsedDiscount);
 
-    const academyPrefix = academyName.substring(0, 3).toUpperCase();
-    const sequenceNumber = (invoiceCount + 1).toString().padStart(2, '0');
-    const invoiceNumber = `INC${academyPrefix}${sequenceNumber}`;
+    const sequenceNumber = (invoiceCount + 1).toString().padStart(4, '0');
+    const invoiceNumber = `INV-${sequenceNumber}`;
 
     return {
       subtotal: totals.subtotal,
