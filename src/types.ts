@@ -89,6 +89,7 @@ export interface Renewal {
   id: string;
   refId: string;
   studentId: string;
+  packageId?: string;
   studentName: string;
   sportName: string;
   currentPackageName: string;
@@ -96,4 +97,13 @@ export interface Renewal {
   daysLeft: number;
   status: StudentStatus;
   renewalStatus?: 'pending' | 'overdue' | 'completed' | 'cancelled';
+}
+
+export interface StudentEnrollment {
+  studentId: string;
+  packageId: string;
+  packageName: string;
+  sportName: string;
+  price: number;
+  status: 'pending' | 'overdue' | 'completed' | 'cancelled';
 }

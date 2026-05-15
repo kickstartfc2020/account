@@ -7,6 +7,8 @@ export type AcademyDetails = {
   code: string;
   logoText: string;
   logoUrl: string;
+  upiId: string;
+  upiQrUrl: string;
   gstNumber: string;
   panNumber: string;
   phone: string;
@@ -19,6 +21,8 @@ const DEFAULT: AcademyDetails = {
   code: '',
   logoText: '',
   logoUrl: '',
+  upiId: '',
+  upiQrUrl: '',
   gstNumber: '',
   panNumber: '',
   phone: '',
@@ -39,6 +43,8 @@ export function useAcademyDetails(): AcademyDetails {
           code: org.code,
           logoText: org.name.charAt(0).toUpperCase(),
           logoUrl: org.logo_url ?? '',
+          upiId: org.upi_id ?? '',
+          upiQrUrl: org.upi_qr_url ?? '',
           gstNumber: org.gst_number ?? '',
           panNumber: org.pan_number ?? '',
           phone: org.phone ?? '',

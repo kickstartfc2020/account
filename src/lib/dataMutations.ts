@@ -161,6 +161,7 @@ export async function createStudent(input: {
     role === 'branch_manager'
       ? await resolveBranchId()
       : await resolveBranchId(input.branchId ?? null);
+
   const studentsTable = supabase.from('students') as any;
   const { data, error } = await studentsTable
     .insert({
@@ -176,6 +177,7 @@ export async function createStudent(input: {
     .single();
 
   if (error || !data) throw error ?? new Error('Failed to create student.');
+
   return data as { id: string; branch_id: string; ref_id: string | null };
 }
 
@@ -201,6 +203,58 @@ export async function updateStudent(input: {
     .eq('organization_id', organizationId);
 
   if (error) throw error;
+}
+
+export async function addStudentEnrollment(input: {
+  studentId: string;
+  packageId: string;
+  branchId?: string | null;
+  startDate?: string;
+}) {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const organizationId = await resolveOrganizationId();
+  const branchId = await resolveBranchId(input.branchId);
+
+  const studentsTable = supabase.from('students') as any;
+  const { error: studentError } = await studentsTable
+    .update({ current_package_id: input.packageId })
+    .eq('id', input.studentId)
+    .eq('organization_id', organizationId);
+
+  if (studentError) throw studentError;
+
+  // Fetch package to determine duration for cycle_end
+  const pkgsTable = supabase.from('packages') as any;
+  const { data: pkg } = await pkgsTable
+    .select('duration_months')
+    .eq('id', input.packageId)
+    .single();
+
+  const durationMonths: number = (pkg as any)?.duration_months ?? 1;
+  const startDate = input.startDate ? new Date(input.startDate) : new Date();
+  const cycleEnd = new Date(startDate);
+  cycleEnd.setMonth(cycleEnd.getMonth() + durationMonths);
+
+  const renewalsTable = supabase.from('renewals') as any;
+  const { error: renewalError } = await renewalsTable.insert({
+    student_id: input.studentId,
+    package_id: input.packageId,
+    organization_id: organizationId,
+    branch_id: branchId,
+    status: 'pending',
+    cycle_end: cycleEnd.toISOString().split('T')[0],
+    due_date: cycleEnd.toISOString().split('T')[0],
+  });
+
+  if (renewalError) {
+    const errorCode = (renewalError as { code?: string }).code;
+    if (errorCode !== '42501') throw renewalError;
+  }
+
+  return {
+    packageId: input.packageId,
+  };
 }
 
 export async function archiveStudent(studentId: string) {

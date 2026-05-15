@@ -15,6 +15,8 @@ export type Database = {
           name: string;
           code: string;
           logo_url: string | null;
+          upi_id: string | null;
+          upi_qr_url: string | null;
           gst_number: string | null;
           pan_number: string | null;
           phone: string | null;
@@ -30,6 +32,8 @@ export type Database = {
           name: string;
           code: string;
           logo_url?: string | null;
+          upi_id?: string | null;
+          upi_qr_url?: string | null;
           gst_number?: string | null;
           pan_number?: string | null;
           phone?: string | null;
@@ -45,6 +49,8 @@ export type Database = {
           name?: string;
           code?: string;
           logo_url?: string | null;
+          upi_id?: string | null;
+          upi_qr_url?: string | null;
           gst_number?: string | null;
           pan_number?: string | null;
           phone?: string | null;

@@ -24,9 +24,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { formatDateDMY } from '@/lib/utils';
+import { toast } from 'sonner';
+import { useAcademyDetails } from '@/hooks/useAcademyDetails';
+import { downloadInvoicesExcelBackup } from '@/lib/invoiceReset';
 
 export default function Invoices() {
+  const pageSize = 10;
     const statToneClass: Record<string, string> = {
       indigo: 'bg-indigo-50 text-indigo-600',
       emerald: 'bg-emerald-50 text-emerald-600',
@@ -35,9 +47,39 @@ export default function Invoices() {
     };
 
   const { data: invoices = [] } = useInvoices();
+  const academy = useAcademyDetails();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = React.useState(searchParams.get('id') || '');
+  const [invoicePage, setInvoicePage] = React.useState(1);
+  const [isExportDialogOpen, setIsExportDialogOpen] = React.useState(false);
+  const [exportStartDate, setExportStartDate] = React.useState('');
+  const [exportEndDate, setExportEndDate] = React.useState('');
+
+  const toDateKey = React.useCallback((value: string) => {
+    const directMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
+    if (directMatch) return directMatch[1];
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+
+    const year = parsed.getFullYear();
+    const month = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }, []);
+
+  const invoiceDateRange = React.useMemo(() => {
+    const keys = invoices
+      .map((invoice) => toDateKey(invoice.date))
+      .filter((value): value is string => Boolean(value))
+      .sort();
+
+    return {
+      min: keys[0] ?? '',
+      max: keys[keys.length - 1] ?? '',
+    };
+  }, [invoices, toDateKey]);
 
   const filteredInvoices = React.useMemo(() => {
     return invoices.filter(inv => 
@@ -46,9 +88,56 @@ export default function Invoices() {
     );
   }, [searchTerm, invoices]);
 
+  React.useEffect(() => {
+    setInvoicePage(1);
+  }, [searchTerm]);
+
+  const invoicesTotalPages = Math.max(1, Math.ceil(filteredInvoices.length / pageSize));
+
+  React.useEffect(() => {
+    setInvoicePage((current) => Math.min(current, invoicesTotalPages));
+  }, [invoicesTotalPages]);
+
+  const paginatedInvoices = React.useMemo(() => {
+    const startIndex = (invoicePage - 1) * pageSize;
+    return filteredInvoices.slice(startIndex, startIndex + pageSize);
+  }, [filteredInvoices, invoicePage]);
+
   const clearSearch = () => {
     setSearchTerm('');
     setSearchParams({});
+  };
+
+  const openExportDialog = () => {
+    setExportStartDate(invoiceDateRange.min);
+    setExportEndDate(invoiceDateRange.max);
+    setIsExportDialogOpen(true);
+  };
+
+  const handleExportData = () => {
+    if (!exportStartDate || !exportEndDate) {
+      toast.error('Please select both start date and end date.');
+      return;
+    }
+
+    if (exportStartDate > exportEndDate) {
+      toast.error('Start date cannot be after end date.');
+      return;
+    }
+
+    const rowsInRange = invoices.filter((invoice) => {
+      const invoiceDateKey = toDateKey(invoice.date);
+      return Boolean(invoiceDateKey) && invoiceDateKey >= exportStartDate && invoiceDateKey <= exportEndDate;
+    });
+
+    if (rowsInRange.length === 0) {
+      toast.error('No invoices found in the selected date range.');
+      return;
+    }
+
+    downloadInvoicesExcelBackup(rowsInRange, academy.name || 'Invoices');
+    toast.success(`Exported ${rowsInRange.length} invoices to Excel.`);
+    setIsExportDialogOpen(false);
   };
 
   const summaryStats = React.useMemo(() => {
@@ -78,7 +167,7 @@ export default function Invoices() {
           <p className="text-slate-500">Track all financial transactions and membership billings.</p>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" className="gap-2">
+          <Button variant="outline" className="gap-2" onClick={openExportDialog}>
             <Download className="w-4 h-4" />
             Export Data
           </Button>
@@ -88,6 +177,47 @@ export default function Invoices() {
           </Button>
         </div>
       </div>
+
+      <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Export Invoices</DialogTitle>
+            <DialogDescription>
+              Select a date range to export invoice data to an Excel file.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 py-2">
+            <div className="space-y-1">
+              <label className="text-xs font-bold uppercase text-slate-500">Start Date</label>
+              <Input
+                type="date"
+                value={exportStartDate}
+                min={invoiceDateRange.min || undefined}
+                max={invoiceDateRange.max || undefined}
+                onChange={(e) => setExportStartDate(e.target.value)}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold uppercase text-slate-500">End Date</label>
+              <Input
+                type="date"
+                value={exportEndDate}
+                min={invoiceDateRange.min || undefined}
+                max={invoiceDateRange.max || undefined}
+                onChange={(e) => setExportEndDate(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsExportDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleExportData}>
+              Export Excel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {summaryStats.map((stat) => (
@@ -146,7 +276,7 @@ export default function Invoices() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredInvoices.map((inv) => (
+            {paginatedInvoices.map((inv) => (
               <TableRow 
                 key={inv.id} 
                 className="cursor-pointer hover:bg-slate-50 transition-colors"
@@ -197,6 +327,33 @@ export default function Invoices() {
             ))}
           </TableBody>
         </Table>
+
+        <div className="flex flex-col gap-3 border-t bg-slate-50/40 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-medium text-slate-500">
+            Showing {filteredInvoices.length === 0 ? 0 : (invoicePage - 1) * pageSize + 1}-{Math.min(invoicePage * pageSize, filteredInvoices.length)} of {filteredInvoices.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setInvoicePage((page) => Math.max(1, page - 1))}
+              disabled={invoicePage === 1}
+            >
+              Previous
+            </Button>
+            <span className="text-xs font-semibold text-slate-500">
+              Page {invoicePage} of {invoicesTotalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setInvoicePage((page) => Math.min(invoicesTotalPages, page + 1))}
+              disabled={invoicePage === invoicesTotalPages}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   );

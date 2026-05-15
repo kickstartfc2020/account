@@ -20,4 +20,8 @@ export async function cancelInvoice(invoiceNumber: string) {
   if (!data) {
     throw new Error('Invoice could not be cancelled.');
   }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:invoices:changed'));
+  }
 }

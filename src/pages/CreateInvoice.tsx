@@ -15,7 +15,7 @@ import {
   ReceiptText
 } from 'lucide-react';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
-import { useStudents, usePackages, useSports, useLocations, useInvoices, useGstRates } from '@/hooks/useData';
+import { useStudents, usePackages, useSports, useLocations, useInvoices, useGstRates, useStudentEnrollments } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -42,6 +42,7 @@ export default function CreateInvoice() {
   const { data: locations } = useLocations();
   const { data: invoices } = useInvoices();
   const { data: gstRates } = useGstRates();
+  const { data: studentEnrollments = [] } = useStudentEnrollments();
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -87,10 +88,28 @@ export default function CreateInvoice() {
 
   const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
 
+  const sportFilteredStudentIds = React.useMemo(() => {
+    const ids = new Set<string>();
+
+    studentEnrollments.forEach((enrollment) => {
+      const enrollmentPackage = packages.find((pkg) => pkg.id === enrollment.packageId);
+      if (enrollmentPackage?.sportId === activeSportId) {
+        ids.add(enrollment.studentId);
+      }
+    });
+
+    return ids;
+  }, [studentEnrollments, packages, activeSportId]);
+
   const filteredStudents = students.filter(s => 
-    s.sportId === activeSportId && 
+    ((sportFilteredStudentIds.size > 0 ? sportFilteredStudentIds.has(s.id) : s.sportId === activeSportId)) &&
     (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm))
   );
+
+  const visibleStudents = React.useMemo(() => {
+    if (searchTerm.trim()) return filteredStudents;
+    return filteredStudents.slice(0, 2);
+  }, [filteredStudents, searchTerm]);
   
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
   const branch =
@@ -103,6 +122,8 @@ export default function CreateInvoice() {
   const activeStudentInvoices = studentPayments.filter((inv) => inv.status !== 'cancelled');
   const outstandingBalanceAmount = activeStudentInvoices.reduce((sum, inv) => sum + Math.max(0, inv.balanceAmount ?? 0), 0);
   const hasFullyPaidInvoice = activeStudentInvoices.some((inv) => (inv.balanceAmount ?? 0) <= 0);
+  const invoiceYear = new Date().getFullYear();
+  const currentYearInvoiceCount = invoices.filter((inv) => new Date(inv.date).getFullYear() === invoiceYear).length;
   const allowedBaseAmount = React.useMemo(() => {
     if (!studentPackage) return 0;
     if (hasFullyPaidInvoice) return 0;
@@ -125,7 +146,8 @@ export default function CreateInvoice() {
       discount,
       gstRate,
       academyName: academy.name,
-      invoiceCount: invoices.length,
+      invoiceCount: currentYearInvoiceCount,
+      invoiceYear,
     });
 
   const handlePrint = () => {
@@ -277,7 +299,12 @@ export default function CreateInvoice() {
         {/* Left Side: Student Selection & Info */}
         <div className="w-[400px] border-r bg-white overflow-y-auto p-6 space-y-8 print:hidden scrollbar-hide">
           <div className="space-y-4">
-            <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Student Lookup</h2>
+            <div className="flex items-center justify-between gap-3">
+              <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Student Lookup</h2>
+              <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-[10px]">
+                {sport.name}
+              </Badge>
+            </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input 
@@ -289,7 +316,7 @@ export default function CreateInvoice() {
             </div>
             
             <div className="grid gap-2">
-              {filteredStudents.map(student => (
+              {visibleStudents.map(student => (
                 <button
                   key={student.id}
                   onClick={() => {

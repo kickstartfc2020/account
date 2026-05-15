@@ -19,7 +19,7 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Student } from '@/types';
+import { Student, StudentEnrollment } from '@/types';
 import { useInvoices, usePackages } from '@/hooks/useData';
 import { addMonths, parseISO } from 'date-fns';
 import { formatDateDMY } from '@/lib/utils';
@@ -27,9 +27,10 @@ import { formatDateDMY } from '@/lib/utils';
 interface StudentDetailSheetProps {
   student: Student;
   children: React.ReactNode;
+  studentEnrollments?: StudentEnrollment[];
 }
 
-export function StudentDetailSheet({ student, children }: StudentDetailSheetProps) {
+export function StudentDetailSheet({ student, children, studentEnrollments = [] }: StudentDetailSheetProps) {
   const navigate = useNavigate();
   const [view, setView] = React.useState<'details' | 'history'>('details');
   const { data: allInvoices } = useInvoices();
@@ -39,6 +40,32 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
     return allInvoices.filter(inv => inv.studentId === student.id);
   }, [student.id, allInvoices]);
 
+  const pkg = allPackages.find(p => p.id === student.packageId);
+
+  const enrolledPackages = React.useMemo(() => {
+    const uniqueByPackage = new Map<string, { sportName: string; packageName: string; price: number }>();
+
+    studentEnrollments.forEach((enrollment) => {
+        if (!uniqueByPackage.has(enrollment.packageId)) {
+          uniqueByPackage.set(enrollment.packageId, {
+            sportName: enrollment.sportName,
+            packageName: enrollment.packageName,
+            price: enrollment.price,
+          });
+        }
+      });
+
+    const values = Array.from(uniqueByPackage.values());
+    if (values.length > 0) return values;
+
+    if (!student.packageName) return [];
+    return [{
+      sportName: student.sportName || 'Sport',
+      packageName: student.packageName,
+      price: pkg?.price ?? 0,
+    }];
+  }, [studentEnrollments, student.packageName, student.sportName, pkg?.price]);
+
   const activeStudentInvoices = React.useMemo(() => {
     return studentInvoices.filter((inv) => inv.status !== 'cancelled');
   }, [studentInvoices]);
@@ -47,51 +74,90 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
     return activeStudentInvoices.reduce((sum, inv) => sum + inv.total, 0);
   }, [activeStudentInvoices]);
 
-  const pkg = allPackages.find(p => p.id === student.packageId);
-  const packageBadgeText = pkg
-    ? `${pkg.name} • ₹${Math.round(pkg.price).toLocaleString('en-IN')}`
-    : student.packageName;
-
-  const computedStartDate = React.useMemo(() => {
-    try {
-      if (!student.joinedAt) return 'N/A';
-      return formatDateDMY(parseISO(student.joinedAt), 'N/A');
-    } catch {
-      return formatDateDMY(student.joinedAt, 'N/A');
-    }
-  }, [student.joinedAt]);
-
-  const computedExpiryDate = React.useMemo(() => {
-    try {
-      if (!student.joinedAt) return formatDateDMY(student.expiryDate, 'N/A');
-      const start = parseISO(student.joinedAt);
-      const durationMonths = Math.max(pkg?.durationMonths ?? 1, 1);
-      return formatDateDMY(addMonths(start, durationMonths), 'N/A');
-    } catch {
-      return formatDateDMY(student.expiryDate, 'N/A');
-    }
-  }, [student.joinedAt, student.expiryDate, pkg?.durationMonths]);
-
   const latestInvoice = React.useMemo(() => {
     if (studentInvoices.length === 0) return null;
     return [...studentInvoices].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
   }, [studentInvoices]);
-  
-  const nextRenewalDate = React.useMemo(() => {
-    try {
-      if (!student.joinedAt) return 'N/A';
-      const start = parseISO(student.joinedAt);
 
-      if (pkg?.billingType === 'one-time') {
-        const isFullyPaid = latestInvoice?.status === 'completed' && (latestInvoice.balanceAmount ?? 0) <= 0;
-        return isFullyPaid ? 'N/A' : formatDateDMY(addMonths(start, 1), 'N/A');
+  const packageWiseSummaries = React.useMemo(() => {
+    const startDate = (() => {
+      try {
+        return student.joinedAt ? parseISO(student.joinedAt) : null;
+      } catch {
+        return null;
+      }
+    })();
+
+    const fallbackEnrollments = student.packageId
+      ? [{ packageId: student.packageId, packageName: student.packageName, sportName: student.sportName }]
+      : [];
+
+    const sourceEnrollments = studentEnrollments.length > 0 ? studentEnrollments : fallbackEnrollments;
+    const uniqueByPackageId = new Map<string, typeof sourceEnrollments[number]>();
+    sourceEnrollments.forEach((enrollment) => {
+      const key = enrollment.packageId || `${enrollment.sportName}:${enrollment.packageName}`;
+      if (!uniqueByPackageId.has(key)) {
+        uniqueByPackageId.set(key, enrollment);
+      }
+    });
+
+    const summaries: Array<{
+      sportName: string;
+      packageName: string;
+      packageId: string;
+      startDateLabel: string;
+      expiryDateLabel: string;
+      nextRenewalLabel: string;
+      showNextRenewal: boolean;
+      paidTillNow: number;
+      amountPending: number;
+    }> = [];
+
+    uniqueByPackageId.forEach((enrollment) => {
+      const sportName = enrollment.sportName || 'Sport';
+      const packageDetails = allPackages.find((item) => item.id === enrollment.packageId);
+      const durationMonths = Math.max(packageDetails?.durationMonths ?? 1, 1);
+
+      const startDateLabel = startDate ? formatDateDMY(startDate, 'N/A') : 'N/A';
+      const expiryDateLabel = startDate ? formatDateDMY(addMonths(startDate, durationMonths), 'N/A') : 'N/A';
+
+      let nextRenewalLabel = 'N/A';
+      const showNextRenewal = packageDetails?.billingType !== 'one-time';
+      if (startDate && showNextRenewal) {
+        nextRenewalLabel = formatDateDMY(addMonths(startDate, 1), 'N/A');
       }
 
-      return formatDateDMY(addMonths(start, 1), 'N/A');
-    } catch {
-      return 'N/A';
-    }
-  }, [student.joinedAt, pkg?.billingType, latestInvoice]);
+      const matchingInvoices = activeStudentInvoices.filter((invoice) =>
+        invoice.packageName === enrollment.packageName
+      );
+      const paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+
+      const expectedTotal = (() => {
+        if (!packageDetails) return 0;
+        return packageDetails.price + (packageDetails.price * packageDetails.taxPercent) / 100;
+      })();
+
+      summaries.push({
+        sportName,
+        packageName: enrollment.packageName || packageDetails?.name || 'Package',
+        packageId: enrollment.packageId,
+        startDateLabel,
+        expiryDateLabel,
+        nextRenewalLabel,
+        showNextRenewal,
+        paidTillNow,
+        amountPending: Math.max(expectedTotal - paidTillNow, 0),
+      });
+    });
+
+    return summaries.sort((a, b) => {
+      if (b.amountPending !== a.amountPending) {
+        return b.amountPending - a.amountPending;
+      }
+
+      return a.packageName.localeCompare(b.packageName);
+    });
+  }, [student.joinedAt, student.packageId, student.packageName, student.sportName, studentEnrollments, allPackages, activeStudentInvoices]);
 
   return (
     <Sheet onOpenChange={(open) => !open && setView('details')}>
@@ -108,9 +174,6 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
             </Avatar>
             <div>
               <SheetTitle className="text-2xl font-display font-bold">{student.name}</SheetTitle>
-              <Badge className="bg-indigo-100 text-indigo-700 border border-indigo-200">
-                {packageBadgeText}
-              </Badge>
             </div>
           </div>
           {view === 'history' && (
@@ -143,44 +206,64 @@ export function StudentDetailSheet({ student, children }: StudentDetailSheetProp
 
               <div className="space-y-6">
                 <div className="flex items-center justify-between border-b pb-2">
-                  <h4 className="font-display font-bold text-slate-900">Active Membership</h4>
-                  <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-100">{student.packageName}</Badge>
-                </div>
-                
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Start Date</p>
-                    <p className="text-sm font-bold text-slate-900 mt-1">{computedStartDate}</p>
-                  </div>
-                  <div className="p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Expiry Date</p>
-                    <p className="text-sm font-bold text-slate-900 mt-1">{computedExpiryDate}</p>
-                  </div>
-                  <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Sport</p>
-                    <p className="text-sm font-bold text-indigo-900 mt-1">{student.sportName}</p>
-                  </div>
-                  <div className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
-                    <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Next Renewal</p>
-                    <p className="text-sm font-bold text-indigo-900 mt-1">{nextRenewalDate}</p>
-                  </div>
+                  <h4 className="font-display font-bold text-slate-900">Enrolled Packages</h4>
+                  <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-100">{enrolledPackages.length} Total</Badge>
                 </div>
 
-                <div className="p-6 bg-slate-900 rounded-3xl text-white space-y-4">
-                  <div className="flex justify-between items-center opacity-80 decoration-slate-400">
-                    <span className="text-xs font-medium uppercase tracking-widest">Financial Summary</span>
-                    <CreditCard className="w-4 h-4" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-8">
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Paid till now</p>
-                      <p className="text-xl font-display font-bold">₹{totalPaid.toLocaleString()}</p>
+                <div className="flex flex-wrap gap-2">
+                  {enrolledPackages.length > 0 ? (
+                    enrolledPackages.map((packageInfo) => (
+                      <Badge key={`${packageInfo.sportName}-${packageInfo.packageName}`} variant="outline" className="bg-emerald-50 text-emerald-700 border-emerald-100 uppercase text-[10px]">
+                        {packageInfo.sportName} - {packageInfo.packageName} - ₹{Math.round(packageInfo.price).toLocaleString('en-IN')}
+                      </Badge>
+                    ))
+                  ) : (
+                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200">{student.packageName || 'No package history'}</Badge>
+                  )}
+                </div>
+                
+                <div className="space-y-3">
+                  {packageWiseSummaries.map((summary) => (
+                    <div key={`${summary.packageId}:${summary.packageName}`} className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50">
+                      <div className="flex items-center justify-between gap-3 pb-3 border-b border-indigo-100/60">
+                        <div>
+                          <p className="text-[10px] font-bold text-indigo-400 uppercase tracking-wider">Sport</p>
+                          <p className="text-sm font-bold text-indigo-900 mt-1">{summary.sportName}</p>
+                        </div>
+                        <Badge variant="outline" className="bg-white text-indigo-700 border-indigo-200 text-[10px] uppercase">
+                          {summary.packageName || 'No package'}
+                        </Badge>
+                      </div>
+
+                      <div className={`grid ${summary.showNextRenewal ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-3`}>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Start</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">{summary.startDateLabel}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Expiry</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">{summary.expiryDateLabel}</p>
+                        </div>
+                        {summary.showNextRenewal && (
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Next Renewal</p>
+                            <p className="text-sm font-bold text-slate-900 mt-1">{summary.nextRenewalLabel}</p>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 pt-3 mt-3 border-t border-indigo-100/60">
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Paid Till Now</p>
+                          <p className="text-base font-display font-bold text-emerald-700 mt-1">₹{summary.paidTillNow.toLocaleString('en-IN')}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Amount Pending</p>
+                          <p className="text-base font-display font-bold text-rose-500 mt-1">₹{summary.amountPending.toLocaleString('en-IN')}</p>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-[10px] uppercase font-bold text-slate-400 mb-1">Amount Pending</p>
-                      <p className="text-xl font-display font-bold text-rose-400">₹{(student.status === 'expired' ? (pkg?.price || 0) : 0).toLocaleString()}</p>
-                    </div>
-                  </div>
+                  ))}
                 </div>
 
                 <div className="flex gap-3 pt-4">
