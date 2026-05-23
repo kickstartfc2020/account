@@ -2,6 +2,7 @@ import React from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { 
   ArrowLeft, 
+  Plus,
   Search, 
   User, 
   Package as PackageIcon, 
@@ -12,7 +13,8 @@ import {
   Share2,
   Mail,
   Phone,
-  ReceiptText
+  ReceiptText,
+  Trash2
 } from 'lucide-react';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { useStudents, usePackages, useSports, useLocations, useInvoices, useGstRates, useStudentEnrollments } from '@/hooks/useData';
@@ -35,6 +37,13 @@ import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { serializeManualInvoiceNotes } from '@/lib/manualInvoice';
+
+type DraftManualItem = {
+  id: string;
+  description: string;
+  quantity: string;
+  unitPrice: string;
+};
 
 export default function CreateInvoice() {
   const { data: students } = useStudents();
@@ -70,7 +79,9 @@ export default function CreateInvoice() {
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
-  const [manualDescription, setManualDescription] = React.useState('Manual invoice item');
+  const [manualItems, setManualItems] = React.useState<DraftManualItem[]>([
+    { id: crypto.randomUUID(), description: 'Manual invoice item', quantity: '1', unitPrice: '' },
+  ]);
   const [manualCustomerName, setManualCustomerName] = React.useState('');
   const [manualCustomerEmail, setManualCustomerEmail] = React.useState('');
   const [manualCustomerPhone, setManualCustomerPhone] = React.useState('');
@@ -103,7 +114,7 @@ export default function CreateInvoice() {
     manualCustomerPhone,
     manualCustomerGst,
     manualCustomerPan,
-    manualDescription,
+    manualItems,
   ]);
   
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
@@ -182,9 +193,28 @@ export default function CreateInvoice() {
     }
   }, [selectedStudentId, allowedBaseAmount, selectedStudent, isManualMode]);
 
+  const validManualItems = React.useMemo(() => {
+    return manualItems
+      .map((item) => {
+        const description = item.description.trim();
+        const quantity = Math.max(0, Number(item.quantity || '0'));
+        const unitPrice = Math.max(0, Number(item.unitPrice || '0'));
+        const lineTotal = quantity * unitPrice;
+        return { description, quantity, unitPrice, lineTotal };
+      })
+      .filter((item) => item.description.length > 0 && item.quantity > 0 && item.unitPrice > 0);
+  }, [manualItems]);
+
+  const manualSubtotal = React.useMemo(
+    () => validManualItems.reduce((sum, item) => sum + item.lineTotal, 0),
+    [validManualItems]
+  );
+
+  const amountInput = isManualMode ? String(manualSubtotal) : amount;
+
   const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
     useInvoiceCalculator({
-      amount,
+      amount: amountInput,
       discount,
       gstRate,
       academyCode: academy.code,
@@ -215,8 +245,8 @@ export default function CreateInvoice() {
       return;
     }
 
-    if (isManualMode && (!manualCustomerName.trim() || !manualCustomerEmail.trim() || !manualCustomerPhone.trim())) {
-      toast.error('Name, email, and number are required for manual invoices.');
+    if (isManualMode && (!manualCustomerName.trim() || !manualCustomerEmail.trim())) {
+      toast.error('Name and email are required for manual invoices.');
       return;
     }
 
@@ -225,8 +255,8 @@ export default function CreateInvoice() {
       return;
     }
 
-    if (isManualMode && parseFloat(amount || '0') <= 0) {
-      toast.error('Amount must be greater than 0.');
+    if (isManualMode && manualSubtotal <= 0) {
+      toast.error('Add at least one valid manual item with quantity and rate greater than 0.');
       return;
     }
 
@@ -258,7 +288,7 @@ export default function CreateInvoice() {
         studentId: selectedStudentForWrite.id,
         packageId: effectivePackage.id,
         sportId: effectiveSport.id,
-        packageName: isManualMode ? manualDescription.trim() || 'Manual invoice item' : effectivePackage.name,
+        packageName: isManualMode ? validManualItems[0]?.description || 'Manual invoice item' : effectivePackage.name,
         sportName: isManualMode ? 'Manual Invoice' : effectiveSport.name,
         subtotal,
         discountTotal: discountAmount,
@@ -268,6 +298,7 @@ export default function CreateInvoice() {
         gstPercent: parseFloat(gstRate),
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
+        manualItems: isManualMode ? validManualItems : undefined,
         preferredBranchId: selectedStudentForWrite.locationId,
         requestKey: submitRequestKeyRef.current,
       });
@@ -322,7 +353,7 @@ export default function CreateInvoice() {
   };
 
   const finalizeDisabled = isManualMode
-    ? isSaving || !selectedStudentForWrite || !manualCustomerName.trim() || !manualCustomerEmail.trim() || !manualCustomerPhone.trim() || parseFloat(amount || '0') <= 0
+    ? isSaving || !selectedStudentForWrite || !manualCustomerName.trim() || !manualCustomerEmail.trim() || manualSubtotal <= 0
     : isSaving || !selectedStudentForWrite || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0;
 
   return (
@@ -393,7 +424,7 @@ export default function CreateInvoice() {
                   <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setIsGenerated(false); }} placeholder="customer@email.com" className="h-11 border-gray-200 focus:ring-indigo-500" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-gray-500">Number</label>
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Number (Optional)</label>
                   <Input value={manualCustomerPhone} onChange={(e) => { setManualCustomerPhone(e.target.value); setIsGenerated(false); }} placeholder="Phone number" className="h-11 border-gray-200 focus:ring-indigo-500" />
                 </div>
                 <div className="space-y-1.5">
@@ -490,9 +521,9 @@ export default function CreateInvoice() {
                   </label>
                   <Input 
                     type="number" 
-                    value={amount}
+                    value={isManualMode ? String(manualSubtotal) : amount}
                     max={isManualMode ? undefined : allowedBaseAmount}
-                    disabled={!isManualMode && Boolean(selectedStudent) && allowedBaseAmount === 0}
+                    disabled={isManualMode || (!isManualMode && Boolean(selectedStudent) && allowedBaseAmount === 0)}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
                       if (!isManualMode && allowedBaseAmount === 0) {
@@ -506,6 +537,9 @@ export default function CreateInvoice() {
                     }}
                     className={cn("bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime", amountExceedsAllowedAmount && "border-red-400 focus:ring-red-400")}
                   />
+                  {isManualMode && (
+                    <p className="text-[10px] text-gray-500">Auto-calculated from manual items.</p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Discount (₹)</label>
@@ -522,17 +556,95 @@ export default function CreateInvoice() {
               </div>
 
               {isManualMode && (
-                <div className="space-y-2">
-                  <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Manual Item Description</label>
-                  <Input
-                    value={manualDescription}
-                    onChange={(e) => {
-                      setManualDescription(e.target.value);
-                      setIsGenerated(false);
-                    }}
-                    placeholder="e.g. Summer camp fee"
-                    className="bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime"
-                  />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Manual Items</label>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-8 px-2 text-[10px] uppercase"
+                      onClick={() => {
+                        setManualItems((prev) => [
+                          ...prev,
+                          { id: crypto.randomUUID(), description: '', quantity: '1', unitPrice: '' },
+                        ]);
+                        setIsGenerated(false);
+                      }}
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Item
+                    </Button>
+                  </div>
+
+                  <div className="space-y-2">
+                    {manualItems.map((item, index) => (
+                      <div key={item.id} className="grid grid-cols-12 gap-2 items-end rounded-xl border border-kickstart-lime/20 bg-white p-2">
+                        <div className="col-span-6 space-y-1">
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Description</label>
+                          <Input
+                            value={item.description}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, description: value } : row));
+                              setIsGenerated(false);
+                            }}
+                            placeholder="e.g. Summer camp fee"
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="col-span-2 space-y-1">
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Qty</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={item.quantity}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, quantity: value } : row));
+                              setIsGenerated(false);
+                            }}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="col-span-3 space-y-1">
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Rate</label>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={item.unitPrice}
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, unitPrice: value } : row));
+                              setIsGenerated(false);
+                            }}
+                            className="h-9"
+                          />
+                        </div>
+                        <div className="col-span-1 flex justify-end">
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            disabled={manualItems.length === 1}
+                            onClick={() => {
+                              if (manualItems.length === 1) return;
+                              setManualItems((prev) => prev.filter((row) => row.id !== item.id));
+                              setIsGenerated(false);
+                            }}
+                          >
+                            <Trash2 className="w-4 h-4 text-gray-500" />
+                          </Button>
+                        </div>
+                        <div className="col-span-12 text-right text-[10px] text-gray-500 font-medium">
+                          Line Total: ₹{((Number(item.quantity || '0') || 0) * (Number(item.unitPrice || '0') || 0)).toLocaleString()}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -795,22 +907,42 @@ export default function CreateInvoice() {
                   <div className="col-span-2 text-right">Rate</div>
                   <div className="col-span-2 text-right">Amount</div>
                 </div>
-                
-                <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 hover:bg-gray-50/50 transition-colors rounded-xl">
-                  <div className="col-span-6">
-                    <p className="font-bold text-gray-900 text-base tracking-tight">{isManualMode ? (manualDescription.trim() || 'Manual invoice item') : (effectivePackage?.name || 'Select Package')}</p>
-                    <p className="text-xs text-gray-400 mt-2 font-medium">{isManualMode ? 'Manual billing entry' : `${activeSportName} Training • ${effectivePackage?.durationMonths || 1} Month Access`}</p>
+
+                {isManualMode ? (
+                  validManualItems.map((item, index) => (
+                    <div key={`${item.description}-${index}`} className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 hover:bg-gray-50/50 transition-colors rounded-xl">
+                      <div className="col-span-6">
+                        <p className="font-bold text-gray-900 text-base tracking-tight">{item.description}</p>
+                        <p className="text-xs text-gray-400 mt-2 font-medium">Manual billing entry</p>
+                      </div>
+                      <div className="col-span-2 text-center font-bold text-gray-900 bg-gray-100 w-fit mx-auto px-3 py-1 rounded-lg">
+                        {String(item.quantity)}
+                      </div>
+                      <div className="col-span-2 text-right font-medium text-gray-600">
+                        ₹{item.unitPrice.toLocaleString()}
+                      </div>
+                      <div className="col-span-2 text-right font-black text-gray-900 text-base">
+                        ₹{item.lineTotal.toLocaleString()}
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 hover:bg-gray-50/50 transition-colors rounded-xl">
+                    <div className="col-span-6">
+                      <p className="font-bold text-gray-900 text-base tracking-tight">{effectivePackage?.name || 'Select Package'}</p>
+                      <p className="text-xs text-gray-400 mt-2 font-medium">{`${activeSportName} Training • ${effectivePackage?.durationMonths || 1} Month Access`}</p>
+                    </div>
+                    <div className="col-span-2 text-center font-bold text-gray-900 bg-gray-100 w-fit mx-auto px-3 py-1 rounded-lg">
+                      01
+                    </div>
+                    <div className="col-span-2 text-right font-medium text-gray-600">
+                      ₹{subtotal.toLocaleString()}
+                    </div>
+                    <div className="col-span-2 text-right font-black text-gray-900 text-base">
+                      ₹{subtotal.toLocaleString()}
+                    </div>
                   </div>
-                  <div className="col-span-2 text-center font-bold text-gray-900 bg-gray-100 w-fit mx-auto px-3 py-1 rounded-lg">
-                    01
-                  </div>
-                  <div className="col-span-2 text-right font-medium text-gray-600">
-                    ₹{subtotal.toLocaleString()}
-                  </div>
-                  <div className="col-span-2 text-right font-black text-gray-900 text-base">
-                    ₹{subtotal.toLocaleString()}
-                  </div>
-                </div>
+                )}
 
                 {/* Totals */}
                 <div className="flex justify-end pt-3">

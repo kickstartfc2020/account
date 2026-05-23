@@ -24,7 +24,7 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
   const student = row.students as { name: string; ref_id: string | null } | null;
   const branch = row.branches as { name: string } | null;
   const payments = (row.payments as Array<{ method: string; status: string }>) ?? [];
-  const items = (row.invoice_items as Array<{ description: string }>) ?? [];
+  const items = (row.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number }>) ?? [];
   const manualBillTo = parseManualInvoiceNotes(row.notes as string | null | undefined);
   const completedPayment = payments.find((payment) => payment.status === 'completed');
 
@@ -48,6 +48,12 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
     locationId: row.branch_id as string,
     locationName: branch?.name ?? '',
     packageName: items[0]?.description ?? '',
+    invoiceItems: items.map((item) => ({
+      description: item.description ?? '',
+      quantity: Number(item.quantity ?? 0),
+      unitPrice: Number(item.unit_price ?? 0),
+      lineTotal: Number(item.line_total ?? 0),
+    })),
   };
 }
 
@@ -83,7 +89,7 @@ export default function ViewInvoice() {
       try {
         const { data, error } = await (supabase as any)
           .from('invoices')
-          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)')
+          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)')
           .eq('invoice_number', id)
           .maybeSingle();
 
@@ -176,6 +182,9 @@ export default function ViewInvoice() {
   const invoiceStatus = isCancelledLocally ? 'cancelled' : invoice.status;
   const isCancelled = invoiceStatus === 'cancelled';
   const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
+  const displayItems = (invoice.invoiceItems && invoice.invoiceItems.length > 0)
+    ? invoice.invoiceItems
+    : [{ description: invoice.packageName || 'Invoice Item', quantity: 1, unitPrice: invoice.amount, lineTotal: invoice.amount }];
 
   const handleCancelInvoice = async () => {
     if (isCancelled) {
@@ -502,17 +511,22 @@ export default function ViewInvoice() {
                 <div className="col-span-4 text-right">Amount</div>
               </div>
               
-              <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 text-slate-900 font-medium">
-                <div className="col-span-8">
-                  <p className="font-bold text-gray-900 text-base tracking-tight">{invoice.packageName}</p>
-                  {!isManualInvoice && (
-                    <p className="text-xs text-gray-400 mt-2 font-medium">Monthly Training • 1 Month Access</p>
-                  )}
+              {displayItems.map((item, index) => (
+                <div
+                  key={`${item.description}-${index}`}
+                  className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 text-slate-900 font-medium"
+                >
+                  <div className="col-span-8">
+                    <p className="font-bold text-gray-900 text-base tracking-tight">{item.description}</p>
+                    <p className="text-xs text-gray-400 mt-2 font-medium">
+                      Qty {item.quantity} × ₹{item.unitPrice.toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="col-span-4 text-right font-black text-gray-900 text-base">
+                    ₹{item.lineTotal.toLocaleString()}
+                  </div>
                 </div>
-                <div className="col-span-4 text-right font-black text-gray-900 text-base">
-                  ₹{invoice.amount.toLocaleString()}
-                </div>
-              </div>
+              ))}
 
               {/* Totals */}
               <div className="flex justify-end pt-3">

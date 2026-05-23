@@ -7,6 +7,13 @@ export type StudentStatus = 'active' | 'expiring' | 'expired' | 'unknown';
 export type PaymentMode = 'cash' | 'card' | 'online' | 'upi';
 export type SubscriptionStatus = 'active' | 'expired';
 
+export interface ManualInvoiceItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 export interface Location {
   id: string;
   refId: string;
@@ -81,6 +88,7 @@ export interface Invoice {
   locationId: string;
   locationName: string;
   packageName: string;
+  invoiceItems?: ManualInvoiceItem[];
 }
 
 export interface GSTRate {

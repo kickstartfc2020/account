@@ -1,5 +1,6 @@
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { reportOperationalError } from '@/lib/observability';
+import type { ManualInvoiceItem } from '@/types';
 
 type PaymentMethod = 'cash' | 'card' | 'upi' | 'online' | 'bank_transfer';
 
@@ -17,6 +18,7 @@ type FinalizeInvoiceInput = {
   gstPercent: number;
   paymentMethod: PaymentMethod;
   paymentModeLabel: string;
+  manualItems?: ManualInvoiceItem[];
   preferredBranchId?: string | null;
   invoiceDate?: string;
   requestKey?: string;
@@ -99,7 +101,7 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     input.preferredBranchId ?? null
   );
 
-  const { data, error } = await (supabase as any).rpc('finalize_invoice_write', {
+  const { data, error } = await (supabase as any).rpc('finalize_invoice_write_v2', {
     p_student_id: input.studentId,
     p_package_id: input.packageId,
     p_sport_id: input.sportId,
@@ -113,6 +115,7 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     p_gst_percent: input.gstPercent,
     p_payment_method: input.paymentMethod,
     p_payment_mode_label: input.paymentModeLabel,
+    p_manual_items: input.manualItems ?? null,
     p_preferred_branch_id: branchId,
     p_invoice_date: input.invoiceDate ?? new Date().toISOString().slice(0, 10),
     p_invoice_number: input.requestKey ?? null,

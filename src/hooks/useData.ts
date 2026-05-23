@@ -266,7 +266,7 @@ export function useInvoices() {
       supabase
         .from('invoices')
         .select(
-          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
+          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)'
         )
         .is('archived_at', null)
         .order('invoice_date', { ascending: false })
@@ -282,7 +282,7 @@ export function useInvoices() {
                 const student = inv.students as { name: string; ref_id: string | null } | null;
                 const branch = inv.branches as { name: string } | null;
                 const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
-                const items = (inv.invoice_items as Array<{ description: string }>) ?? [];
+                const items = (inv.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number }>) ?? [];
                 const manualBillTo = parseManualInvoiceNotes(inv.notes as string | null | undefined);
                 const completedPayment = payments.find((p) => p.status === 'completed');
                 return {
@@ -305,6 +305,12 @@ export function useInvoices() {
                   locationId: inv.branch_id as string,
                   locationName: branch?.name ?? '',
                   packageName: items[0]?.description ?? '',
+                  invoiceItems: items.map((item) => ({
+                    description: item.description ?? '',
+                    quantity: Number(item.quantity ?? 0),
+                    unitPrice: Number(item.unit_price ?? 0),
+                    lineTotal: Number(item.line_total ?? 0),
+                  })),
                 };
               })
           );
