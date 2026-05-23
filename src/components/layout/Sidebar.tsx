@@ -22,6 +22,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 const superAdminItems = [
   { icon: LayoutDashboard, label: 'Accounts Dashboard', path: '/super-admin' },
+  { icon: Receipt, label: 'Invoices', path: '/super-admin/invoices' },
   { icon: Users, label: 'User Management', path: '/super-admin/users' },
   { icon: Building2, label: 'Club Details', path: '/super-admin/club' },
 ];
@@ -70,6 +71,8 @@ export function Sidebar() {
               src={academy.logoUrl}
               alt="Organization logo"
               className="h-12 w-12 object-contain"
+              width={48}
+              height={48}
             />
           ) : (
             <div className="w-10 h-10 flex items-center justify-center text-indigo-600 font-bold text-xl">
