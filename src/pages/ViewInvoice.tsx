@@ -13,15 +13,18 @@ import { useInvoices, useStudents, useLocations } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
-import { buildInvoicePdfBlob, downloadPdfBlob, sharePdfByEmail } from '@/lib/invoiceExport';
+import { buildInvoicePdfBlob, downloadPdfBlob } from '@/lib/invoiceExport';
 import { cancelInvoice } from '@/lib/invoiceMutations';
 import { formatDateDMY } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Invoice } from '@/types';
 import { parseManualInvoiceNotes } from '@/lib/manualInvoice';
+import { sendInvoiceEmail } from '@/lib/invoiceEmail';
+
+type EmailDeliveryStatus = 'not_sent' | 'sending' | 'sent' | 'failed';
 
 function mapInvoiceRowToInvoice(row: any): Invoice {
-  const student = row.students as { name: string; ref_id: string | null } | null;
+  const student = row.students as { name: string; ref_id: string | null; email: string | null } | null;
   const branch = row.branches as { name: string } | null;
   const payments = (row.payments as Array<{ method: string; status: string }>) ?? [];
   const items = (row.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number }>) ?? [];
@@ -33,6 +36,7 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
     studentId: row.student_id as string,
     studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
     studentName: manualBillTo?.name ?? (student?.name ?? ''),
+    studentEmail: manualBillTo?.email ?? (student?.email ?? undefined),
     manualCustomerName: manualBillTo?.name,
     manualCustomerEmail: manualBillTo?.email,
     manualCustomerPhone: manualBillTo?.phone,
@@ -65,7 +69,9 @@ export default function ViewInvoice() {
   const { data: students } = useStudents();
   const { data: locations } = useLocations();
   const isGeneratedMode = searchParams.get('generated') === '1';
+  const shouldAutoSendEmail = searchParams.get('autosend') === '1';
   const invoiceCardRef = React.useRef<HTMLDivElement | null>(null);
+  const autoSendAttemptedRef = React.useRef(false);
   
   const academy = useAcademyDetails();
   const [resolvedGeneratedInvoice, setResolvedGeneratedInvoice] = React.useState<Invoice | null>(null);
@@ -73,6 +79,8 @@ export default function ViewInvoice() {
   const invoice = invoices.find((inv) => inv.id === id) ?? resolvedGeneratedInvoice;
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [isCancelledLocally, setIsCancelledLocally] = React.useState(false);
+  const [emailDeliveryStatus, setEmailDeliveryStatus] = React.useState<EmailDeliveryStatus>('not_sent');
+  const [emailDeliveryMessage, setEmailDeliveryMessage] = React.useState('Not sent yet');
 
   React.useEffect(() => {
     if (!isGeneratedMode || !id || invoice || !isSupabaseConfigured || !supabase) {
@@ -89,7 +97,7 @@ export default function ViewInvoice() {
       try {
         const { data, error } = await (supabase as any)
           .from('invoices')
-          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)')
+          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id, email), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)')
           .eq('invoice_number', id)
           .maybeSingle();
 
@@ -179,12 +187,51 @@ export default function ViewInvoice() {
   const billToTertiary = isManualInvoice
     ? (invoice.manualCustomerPhone || '—')
     : invoice.locationName;
+  const billToEmailForSend = (invoice.manualCustomerEmail || invoice.studentEmail || '').trim();
   const invoiceStatus = isCancelledLocally ? 'cancelled' : invoice.status;
   const isCancelled = invoiceStatus === 'cancelled';
   const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
   const displayItems = (invoice.invoiceItems && invoice.invoiceItems.length > 0)
     ? invoice.invoiceItems
     : [{ description: invoice.packageName || 'Invoice Item', quantity: 1, unitPrice: invoice.amount, lineTotal: invoice.amount }];
+  const emailStatusBadgeClassName =
+    emailDeliveryStatus === 'sent'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+      : emailDeliveryStatus === 'sending'
+        ? 'bg-amber-50 text-amber-700 border-amber-100'
+        : emailDeliveryStatus === 'failed'
+          ? 'bg-red-50 text-red-700 border-red-100'
+          : 'bg-slate-100 text-slate-600 border-slate-200';
+  const emailStatusLabel =
+    emailDeliveryStatus === 'sent'
+      ? 'Sent'
+      : emailDeliveryStatus === 'sending'
+        ? 'Sending'
+        : emailDeliveryStatus === 'failed'
+          ? 'Failed'
+          : 'Not Sent';
+
+  React.useEffect(() => {
+    if (!invoice) return;
+
+    const storageKey = `invoice:auto-email:${invoice.id}`;
+    const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem(storageKey) : null;
+
+    if (stored === 'sent') {
+      setEmailDeliveryStatus('sent');
+      setEmailDeliveryMessage('Email delivered');
+      return;
+    }
+
+    if (stored === 'sending') {
+      setEmailDeliveryStatus('sending');
+      setEmailDeliveryMessage('Sending in progress');
+      return;
+    }
+
+    setEmailDeliveryStatus('not_sent');
+    setEmailDeliveryMessage('Not sent yet');
+  }, [invoice?.id]);
 
   const handleCancelInvoice = async () => {
     if (isCancelled) {
@@ -278,13 +325,22 @@ export default function ViewInvoice() {
     }
   };
 
-  const handleShare = async (method: 'email') => {
+  const handleShare = async () => {
     if (!invoice) {
       toast.error('Invoice is not ready to share yet.');
       return;
     }
 
+    if (!billToEmailForSend) {
+      setEmailDeliveryStatus('failed');
+      setEmailDeliveryMessage('Missing billed-to email');
+      toast.error('Billed-to email is missing. Add customer/student email before sending.');
+      return;
+    }
+
     try {
+      setEmailDeliveryStatus('sending');
+      setEmailDeliveryMessage(`Sending to ${billToEmailForSend}`);
       const fileName = `${invoice.id}.pdf`;
       if (!invoiceCardRef.current) {
         toast.error('Invoice is not ready to share yet.');
@@ -295,19 +351,104 @@ export default function ViewInvoice() {
         element: invoiceCardRef.current,
         fileName,
       });
-      await sharePdfByEmail(
-        pdfBlob,
-        fileName,
-        `Invoice ${invoice.id}`,
-        `Please find attached invoice ${invoice.id} for ${invoice.studentName}.`
-      );
+      await sendInvoiceEmail({
+        toEmail: billToEmailForSend,
+        toName: billToName,
+        invoiceNumber: invoice.id,
+        invoiceDate: invoice.date,
+        totalAmount: invoice.total,
+        branchName: invoice.locationName,
+        academyName: academy.name || 'Kickstart FC',
+        paymentMode: invoice.paymentMode,
+        status: invoiceStatus,
+        attachmentBlob: pdfBlob,
+        attachmentFileName: fileName,
+      });
 
-      toast.success(`Invoice shared via ${method}`);
+      setEmailDeliveryStatus('sent');
+      setEmailDeliveryMessage(`Delivered to ${billToEmailForSend}`);
+      toast.success(`Invoice emailed to ${billToEmailForSend}`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unable to open email share flow.';
+      setEmailDeliveryStatus('failed');
+      setEmailDeliveryMessage(error instanceof Error ? error.message : 'Unable to send invoice email.');
+      const message = error instanceof Error ? error.message : 'Unable to send invoice email.';
       toast.error(message);
     }
   };
+
+  React.useEffect(() => {
+    if (!shouldAutoSendEmail || !invoice || !invoiceCardRef.current || isCancelled || !billToEmailForSend) {
+      return;
+    }
+
+    if (autoSendAttemptedRef.current) {
+      return;
+    }
+
+    const storageKey = `invoice:auto-email:${invoice.id}`;
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(storageKey) === 'sent') {
+      autoSendAttemptedRef.current = true;
+      return;
+    }
+
+    autoSendAttemptedRef.current = true;
+
+    const sendAutomatically = async () => {
+      try {
+        setEmailDeliveryStatus('sending');
+        setEmailDeliveryMessage(`Sending to ${billToEmailForSend}`);
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(storageKey, 'sending');
+        }
+
+        const fileName = `${invoice.id}.pdf`;
+        const pdfBlob = await buildInvoicePdfBlob({
+          element: invoiceCardRef.current as HTMLDivElement,
+          fileName,
+        });
+
+        await sendInvoiceEmail({
+          toEmail: billToEmailForSend,
+          toName: billToName,
+          invoiceNumber: invoice.id,
+          invoiceDate: invoice.date,
+          totalAmount: invoice.total,
+          branchName: invoice.locationName,
+          academyName: academy.name || 'Kickstart FC',
+          paymentMode: invoice.paymentMode,
+          status: invoiceStatus,
+          attachmentBlob: pdfBlob,
+          attachmentFileName: fileName,
+        });
+
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(storageKey, 'sent');
+        }
+
+        setEmailDeliveryStatus('sent');
+        setEmailDeliveryMessage(`Delivered to ${billToEmailForSend}`);
+        toast.success(`Invoice emailed to ${billToEmailForSend}`);
+      } catch (error) {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(storageKey);
+        }
+        setEmailDeliveryStatus('failed');
+        setEmailDeliveryMessage(error instanceof Error ? error.message : 'Auto email send failed.');
+        const message = error instanceof Error ? error.message : 'Auto email send failed.';
+        toast.error(message);
+      }
+    };
+
+    void sendAutomatically();
+  }, [
+    shouldAutoSendEmail,
+    invoice,
+    isCancelled,
+    billToEmailForSend,
+    billToName,
+    academy.name,
+    invoiceStatus,
+  ]);
 
   return (
     <div className={isGeneratedMode ? 'flex-1 bg-gray-50 flex flex-col' : '-mx-8 -my-8 flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm'}>
@@ -326,6 +467,12 @@ export default function ViewInvoice() {
         </div>
         
         <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 mr-1">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Delivery</span>
+            <Badge variant="outline" className={`text-[10px] font-bold uppercase ${emailStatusBadgeClassName}`}>
+              {emailStatusLabel}
+            </Badge>
+          </div>
           <Button
             variant="outline"
             size="sm"
@@ -345,7 +492,7 @@ export default function ViewInvoice() {
             PDF
           </Button>
           <div className="h-6 w-[1px] bg-gray-200 mx-1"></div>
-          <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase border-indigo-100 text-indigo-600 hover:bg-indigo-50" onClick={() => handleShare('email')} disabled={isCancelled}>
+          <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase border-indigo-100 text-indigo-600 hover:bg-indigo-50" onClick={handleShare} disabled={isCancelled}>
             <Mail className="w-3.5 h-3.5" />
             Email
           </Button>
@@ -603,7 +750,13 @@ export default function ViewInvoice() {
 
         {isGeneratedMode && (
           <div className="mt-4 bg-white border rounded-xl p-4 flex items-center justify-center gap-3 print:hidden">
-            <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase border-indigo-100 text-indigo-600 hover:bg-indigo-50" onClick={() => handleShare('email')} disabled={isCancelled}>
+            <div className="flex items-center gap-2 mr-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Email Delivery</span>
+              <Badge variant="outline" className={`text-[10px] font-bold uppercase ${emailStatusBadgeClassName}`}>
+                {emailStatusLabel}
+              </Badge>
+            </div>
+            <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase border-indigo-100 text-indigo-600 hover:bg-indigo-50" onClick={handleShare} disabled={isCancelled}>
               <Mail className="w-3.5 h-3.5" />
               Share Email
             </Button>
@@ -627,6 +780,7 @@ export default function ViewInvoice() {
             </Button>
           </div>
         )}
+        <p className="mt-2 text-center text-xs text-slate-500 print:hidden">{emailDeliveryMessage}</p>
       </div>
     </div>
   );

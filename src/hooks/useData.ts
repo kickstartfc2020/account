@@ -266,7 +266,7 @@ export function useInvoices() {
       supabase
         .from('invoices')
         .select(
-          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)'
+          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id, email), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)'
         )
         .is('archived_at', null)
         .order('invoice_date', { ascending: false })
@@ -279,7 +279,7 @@ export function useInvoices() {
             const r = (rows ?? []) as any[];
             setData(
               r.map((inv) => {
-                const student = inv.students as { name: string; ref_id: string | null } | null;
+                const student = inv.students as { name: string; ref_id: string | null; email: string | null } | null;
                 const branch = inv.branches as { name: string } | null;
                 const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
                 const items = (inv.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number }>) ?? [];
@@ -290,6 +290,7 @@ export function useInvoices() {
                   studentId: inv.student_id as string,
                   studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
                   studentName: manualBillTo?.name ?? (student?.name ?? ''),
+                  studentEmail: manualBillTo?.email ?? (student?.email ?? undefined),
                   manualCustomerName: manualBillTo?.name,
                   manualCustomerEmail: manualBillTo?.email,
                   manualCustomerPhone: manualBillTo?.phone,
