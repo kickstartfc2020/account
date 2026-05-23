@@ -104,7 +104,7 @@ export default function Renewals() {
 
   const confirmRenewal = async () => {
     if (!selectedRenewal || !selectedStudent || !selectedPackage) {
-      toast.error('Select a package before confirming renewal.');
+      toast.error('Select a batch before confirming renewal.');
       return;
     }
 
@@ -232,7 +232,7 @@ export default function Renewals() {
         <div className="relative flex-1 min-w-[240px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <Input 
-            placeholder="Search students, sports or packages..." 
+            placeholder="Search students, sports or batches..." 
             className="pl-10 h-10 bg-slate-50/50 border-transparent focus:bg-white focus:border-indigo-500 transition-all shadow-none"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -322,7 +322,7 @@ export default function Renewals() {
             <TableRow>
               <TableHead>Student</TableHead>
               <TableHead>Sport</TableHead>
-              <TableHead>Current Package</TableHead>
+              <TableHead>Current Batch</TableHead>
               <TableHead>Expiry Date</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Action</TableHead>
@@ -403,10 +403,10 @@ export default function Renewals() {
 
                         <div className="space-y-4">
                           <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Select New Package</label>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Select New Batch</label>
                             <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
                               <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select package" />
+                                <SelectValue placeholder="Select batch" />
                               </SelectTrigger>
                               <SelectContent>
                                 {packagesData.map(pkg => (
@@ -442,7 +442,7 @@ export default function Renewals() {
 
                         <div className="pt-4 border-t space-y-2">
                           <div className="flex justify-between text-sm">
-                            <span className="text-slate-500">Package Amount</span>
+                            <span className="text-slate-500">Batch Amount</span>
                             <span className="font-semibold">₹{selectedBilling.subtotal.toLocaleString()}</span>
                           </div>
                           <div className="flex justify-between text-sm">
@@ -561,7 +561,7 @@ export default function Renewals() {
               </TableHeader>
               <TableBody>
                 <TableRow>
-                  <TableCell className="font-medium font-bold">{selectedPackage?.name || 'Selected Package'}</TableCell>
+                  <TableCell className="font-medium font-bold">{selectedPackage?.name || 'Selected Batch'}</TableCell>
                   <TableCell className="text-right">{selectedPackage?.durationMonths || 1} Month{(selectedPackage?.durationMonths || 1) > 1 ? 's' : ''}</TableCell>
                   <TableCell className="text-right">₹{selectedBilling.subtotal.toFixed(2)}</TableCell>
                 </TableRow>

@@ -81,6 +81,8 @@ export default function Packages() {
   const [editRecurringCount, setEditRecurringCount] = React.useState('1');
   const [packageType, setPackageType] = React.useState<"one-time" | "recurring">("one-time");
   const [packagesPage, setPackagesPage] = React.useState(1);
+  const [createFormErrors, setCreateFormErrors] = React.useState<{ name?: string; sportId?: string; duration?: string; price?: string }>({});
+  const [editFormErrors, setEditFormErrors] = React.useState<{ name?: string; sportId?: string; duration?: string; price?: string }>({});
 
   const packagesTotalPages = Math.max(1, Math.ceil(packages.length / pageSize));
 
@@ -107,10 +109,22 @@ export default function Packages() {
       Number(newRecurringCount)
     );
 
+    const nextErrors: { name?: string; sportId?: string; duration?: string; price?: string } = {};
+    if (!name) nextErrors.name = 'Batch name is required.';
+    if (!newSportId) nextErrors.sportId = 'Sport is required.';
+    if (!Number.isFinite(normalizedDurationMonths) || normalizedDurationMonths <= 0) nextErrors.duration = 'Enter a valid duration.';
+    if (!Number.isFinite(amount) || amount < 0) nextErrors.price = 'Enter a valid price.';
+
+    if (Object.keys(nextErrors).length > 0) {
+      setCreateFormErrors(nextErrors);
+    }
+
     if (!name || !newSportId || !Number.isFinite(normalizedDurationMonths) || normalizedDurationMonths <= 0 || !Number.isFinite(amount) || amount < 0) {
-      toast.error('Please complete all required package fields.');
+      toast.error('Please complete all required batch fields.');
       return;
     }
+
+    setCreateFormErrors({});
 
     setIsSaving(true);
     try {
@@ -138,15 +152,16 @@ export default function Packages() {
         },
         ...prev,
       ]);
-      toast.success('Package created successfully!');
+      toast.success('Batch created successfully!');
       setIsAddOpen(false);
       setPackageType('one-time');
       setNewSportId('');
       setNewRecurringInterval('month');
       setNewRecurringCount('1');
+      setCreateFormErrors({});
       formElement.reset();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to create package.';
+      const message = error instanceof Error ? error.message : 'Failed to create batch.';
       reportOperationalError('package.create', 'Failed to create package.', error, { name, sportId: newSportId });
       toast.error(message);
     } finally {
@@ -180,6 +195,20 @@ export default function Packages() {
         )
       : editingPackage.durationMonths;
 
+    const nextErrors: { name?: string; sportId?: string; duration?: string; price?: string } = {};
+    if (!editingPackage.name.trim()) nextErrors.name = 'Batch name is required.';
+    if (!editingPackage.sportId) nextErrors.sportId = 'Sport is required.';
+    if (!Number.isFinite(normalizedDurationMonths) || normalizedDurationMonths <= 0) nextErrors.duration = 'Enter a valid duration.';
+    if (!Number.isFinite(editingPackage.price) || editingPackage.price < 0) nextErrors.price = 'Enter a valid price.';
+
+    if (Object.keys(nextErrors).length > 0) {
+      setEditFormErrors(nextErrors);
+      toast.error('Please complete all required batch fields.');
+      return;
+    }
+
+    setEditFormErrors({});
+
     setIsSaving(true);
     try {
       await updatePackage({
@@ -198,8 +227,9 @@ export default function Packages() {
       setIsEditOpen(false);
       setEditRecurringInterval('month');
       setEditRecurringCount('1');
+      setEditFormErrors({});
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to update package.';
+      const message = error instanceof Error ? error.message : 'Failed to update batch.';
       reportOperationalError('package.update', 'Failed to update package.', error, { packageId: editingPackage.id });
       toast.error(message);
     } finally {
@@ -218,7 +248,7 @@ export default function Packages() {
       setIsDeleteOpen(false);
       setDeletingPackage(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to archive package.';
+      const message = error instanceof Error ? error.message : 'Failed to archive batch.';
       reportOperationalError('package.archive', 'Failed to archive package.', error, { packageId: deletingPackage.id });
       toast.error(message);
     } finally {
@@ -230,7 +260,7 @@ export default function Packages() {
     <div className="space-y-8">
       <div className="flex justify-between items-end">
         <div>
-          <h1 className="text-2xl font-display font-bold text-slate-900">Packages</h1>
+          <h1 className="text-2xl font-display font-bold text-slate-900">Batches</h1>
           <p className="text-slate-500">Define membership durations and pricing for your students.</p>
         </div>
         
@@ -238,28 +268,39 @@ export default function Packages() {
           <DialogTrigger asChild>
             <Button className="bg-indigo-600 hover:bg-indigo-700 gap-2 h-11 px-6 rounded-xl shadow-lg shadow-indigo-100 transition-all active:scale-95">
               <Plus className="w-5 h-5" />
-              Create Package
+              Create Batch
             </Button>
           </DialogTrigger>
           <DialogContent className="sm:max-w-[425px]">
             <form onSubmit={handleCreate}>
               <DialogHeader>
-                <DialogTitle className="text-xl font-bold font-display">Create New Package</DialogTitle>
+                <DialogTitle className="text-xl font-bold font-display">Create New Batch</DialogTitle>
                 <DialogDescription>
                   Set up a new membership plan for your students.
                 </DialogDescription>
               </DialogHeader>
               <div className="grid gap-6 py-6">
                 <div className="grid gap-2">
-                  <Label htmlFor="name" className="text-xs font-bold uppercase text-slate-500">Package Name</Label>
-                  <Input id="name" name="name" placeholder="e.g. Badminton Gold Monthly" required />
+                  <Label htmlFor="name" className="text-xs font-bold uppercase text-slate-500">Batch Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                  <Input
+                    id="name"
+                    name="name"
+                    placeholder="e.g. Badminton Gold Monthly"
+                    required
+                    className={cn(createFormErrors.name && 'border-red-400 focus-visible:ring-red-400')}
+                    onChange={() => setCreateFormErrors((prev) => ({ ...prev, name: undefined }))}
+                  />
+                  {createFormErrors.name && <p className="text-[11px] text-red-500">{createFormErrors.name}</p>}
                 </div>
                 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="grid gap-2">
-                    <Label className="text-xs font-bold uppercase text-slate-500">Sport</Label>
-                    <Select required value={newSportId} onValueChange={setNewSportId}>
-                      <SelectTrigger className="h-11 rounded-xl">
+                    <Label className="text-xs font-bold uppercase text-slate-500">Sport <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                    <Select required value={newSportId} onValueChange={(value) => {
+                      setNewSportId(value);
+                      setCreateFormErrors((prev) => ({ ...prev, sportId: undefined }));
+                    }}>
+                      <SelectTrigger className={cn("h-11 rounded-xl", createFormErrors.sportId && "border-red-400 focus:ring-red-400")}>
                         <SelectValue placeholder="Select sport">
                           {sports.find((sport) => sport.id === newSportId)?.name ?? ''}
                         </SelectValue>
@@ -270,18 +311,21 @@ export default function Packages() {
                         ))}
                         </SelectContent>
                       </Select>
+                      {createFormErrors.sportId && <p className="text-[11px] text-red-500">{createFormErrors.sportId}</p>}
                     </div>
                     {packageType !== 'recurring' && (
                       <div className="grid gap-2">
-                        <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
-                        <Input id="duration" name="duration" type="number" placeholder="1" defaultValue="1" min="1" className="h-11 rounded-xl" required />
+                        <Label htmlFor="duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months) <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                        <Input id="duration" name="duration" type="number" placeholder="1" defaultValue="1" min="1" className={cn("h-11 rounded-xl", createFormErrors.duration && "border-red-400 focus-visible:ring-red-400")} required onChange={() => setCreateFormErrors((prev) => ({ ...prev, duration: undefined }))} />
+                        {createFormErrors.duration && <p className="text-[11px] text-red-500">{createFormErrors.duration}</p>}
                       </div>
                     )}
                   </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="price" className="text-xs font-bold uppercase text-slate-500">Price (₹)</Label>
-                    <Input id="price" name="price" type="number" placeholder="2000" className="h-11 rounded-xl" required />
+                  <Label htmlFor="price" className="text-xs font-bold uppercase text-slate-500">Price (₹) <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                    <Input id="price" name="price" type="number" placeholder="2000" className={cn("h-11 rounded-xl", createFormErrors.price && "border-red-400 focus-visible:ring-red-400")} required onChange={() => setCreateFormErrors((prev) => ({ ...prev, price: undefined }))} />
+                    {createFormErrors.price && <p className="text-[11px] text-red-500">{createFormErrors.price}</p>}
                 </div>
 
                 <div className="grid gap-2">
@@ -317,8 +361,12 @@ export default function Packages() {
                         </Select>
                       </div>
                       <div className="grid gap-2">
-                        <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration</Label>
-                        <Input type="number" className="bg-white h-10" placeholder="1" min="1" value={newRecurringCount} onChange={(e) => setNewRecurringCount(e.target.value)} required />
+                          <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                          <Input type="number" className={cn("bg-white h-10", createFormErrors.duration && "border-red-400 focus-visible:ring-red-400")} placeholder="1" min="1" value={newRecurringCount} onChange={(e) => {
+                            setNewRecurringCount(e.target.value);
+                            setCreateFormErrors((prev) => ({ ...prev, duration: undefined }));
+                          }} required />
+                          {createFormErrors.duration && <p className="text-[11px] text-red-500">{createFormErrors.duration}</p>}
                       </div>
                     </div>
                     <p className="text-[10px] text-indigo-400 mt-3 font-medium">
@@ -342,7 +390,7 @@ export default function Packages() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <Input 
               className="pl-10 bg-white" 
-              placeholder="Search packages..." 
+              placeholder="Search batches..." 
             />
           </div>
         </div>
@@ -350,7 +398,7 @@ export default function Packages() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead className="w-[300px]">Package Name</TableHead>
+              <TableHead className="w-[300px]">Batch Name</TableHead>
               <TableHead>Sport</TableHead>
               <TableHead>Duration</TableHead>
               <TableHead>Price (Base)</TableHead>
@@ -403,14 +451,14 @@ export default function Packages() {
                     <DropdownMenuContent align="end" className="w-48 rounded-xl p-1">
                       <DropdownMenuItem onClick={() => handleEditClick(pkg)} className="rounded-lg font-medium text-xs py-2 cursor-pointer">
                         <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-400" />
-                        Edit Package
+                        Edit Batch
                       </DropdownMenuItem>
                       <DropdownMenuItem 
                         onClick={() => handleDeleteClick(pkg)}
                         className="rounded-lg font-bold text-xs py-2 cursor-pointer text-red-500 focus:text-red-600 focus:bg-red-50"
                       >
                         <Trash2 className="w-3.5 h-3.5 mr-2" />
-                        Delete Package
+                        Delete Batch
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -453,26 +501,30 @@ export default function Packages() {
         <DialogContent className="sm:max-w-[425px] rounded-2xl">
           <form onSubmit={handleUpdate}>
             <DialogHeader>
-              <DialogTitle className="text-xl font-bold font-display">Update Package</DialogTitle>
+              <DialogTitle className="text-xl font-bold font-display">Update Batch</DialogTitle>
               <DialogDescription>
                 Modify plan details for <span className="font-bold text-slate-900">{editingPackage?.name}</span>.
               </DialogDescription>
             </DialogHeader>
             <div className="grid gap-6 py-6">
               <div className="grid gap-2">
-                <Label htmlFor="edit-name" className="text-xs font-bold uppercase text-slate-500">Package Name</Label>
+                <Label htmlFor="edit-name" className="text-xs font-bold uppercase text-slate-500">Batch Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                 <Input 
                   id="edit-name" 
                   value={editingPackage?.name || ''} 
-                  onChange={(e) => editingPackage && setEditingPackage({...editingPackage, name: e.target.value})}
-                  className="h-11 rounded-xl"
+                  onChange={(e) => {
+                    if (editingPackage) setEditingPackage({...editingPackage, name: e.target.value});
+                    setEditFormErrors((prev) => ({ ...prev, name: undefined }));
+                  }}
+                  className={cn("h-11 rounded-xl", editFormErrors.name && "border-red-400 focus-visible:ring-red-400")}
                   required 
                 />
+                {editFormErrors.name && <p className="text-[11px] text-red-500">{editFormErrors.name}</p>}
               </div>
               
               <div className="grid grid-cols-2 gap-4">
                 <div className="grid gap-2">
-                  <Label className="text-xs font-bold uppercase text-slate-500">Sport</Label>
+                  <Label className="text-xs font-bold uppercase text-slate-500">Sport <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                   <Select 
                     value={editingPackage?.sportId} 
                     onValueChange={(v) => {
@@ -480,9 +532,10 @@ export default function Packages() {
                       if (editingPackage && sport) {
                         setEditingPackage({...editingPackage, sportId: v, sportName: sport.name});
                       }
+                      setEditFormErrors((prev) => ({ ...prev, sportId: undefined }));
                     }}
                   >
-                    <SelectTrigger className="h-11 rounded-xl">
+                    <SelectTrigger className={cn("h-11 rounded-xl", editFormErrors.sportId && "border-red-400 focus:ring-red-400")}>
                       <SelectValue placeholder="Select sport">
                         {sports.find((sport) => sport.id === editingPackage?.sportId)?.name ?? ''}
                       </SelectValue>
@@ -493,32 +546,41 @@ export default function Packages() {
                       ))}
                     </SelectContent>
                   </Select>
+                  {editFormErrors.sportId && <p className="text-[11px] text-red-500">{editFormErrors.sportId}</p>}
                 </div>
                 {(editingPackage?.billingType ?? packageType) !== 'recurring' && (
                   <div className="grid gap-2">
-                    <Label htmlFor="edit-duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months)</Label>
+                    <Label htmlFor="edit-duration" className="text-xs font-bold uppercase text-slate-500">Duration (Months) <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                     <Input 
                       id="edit-duration" 
                       type="number" 
                       value={editingPackage?.durationMonths || ''} 
-                      onChange={(e) => editingPackage && setEditingPackage({...editingPackage, durationMonths: parseInt(e.target.value)})}
-                      className="h-11 rounded-xl"
+                      onChange={(e) => {
+                        if (editingPackage) setEditingPackage({...editingPackage, durationMonths: parseInt(e.target.value)});
+                        setEditFormErrors((prev) => ({ ...prev, duration: undefined }));
+                      }}
+                      className={cn("h-11 rounded-xl", editFormErrors.duration && "border-red-400 focus-visible:ring-red-400")}
                       required 
                     />
+                    {editFormErrors.duration && <p className="text-[11px] text-red-500">{editFormErrors.duration}</p>}
                   </div>
                 )}
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="edit-price" className="text-xs font-bold uppercase text-slate-500">Price (₹)</Label>
+                <Label htmlFor="edit-price" className="text-xs font-bold uppercase text-slate-500">Price (₹) <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                 <Input 
                   id="edit-price" 
                   type="number" 
                   value={editingPackage?.price || ''} 
-                        onChange={(e) => editingPackage && setEditingPackage({...editingPackage, price: parseFloat(e.target.value) || 0})}
-                  className="h-11 rounded-xl"
+                        onChange={(e) => {
+                          if (editingPackage) setEditingPackage({...editingPackage, price: parseFloat(e.target.value) || 0});
+                          setEditFormErrors((prev) => ({ ...prev, price: undefined }));
+                        }}
+                  className={cn("h-11 rounded-xl", editFormErrors.price && "border-red-400 focus-visible:ring-red-400")}
                   required 
                 />
+                {editFormErrors.price && <p className="text-[11px] text-red-500">{editFormErrors.price}</p>}
               </div>
 
               <div className="grid gap-2">
@@ -557,8 +619,12 @@ export default function Packages() {
                       </Select>
                     </div>
                     <div className="grid gap-2">
-                      <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration</Label>
-                      <Input type="number" className="bg-white h-9 rounded-lg" placeholder="1" min="1" value={editRecurringCount} onChange={(e) => setEditRecurringCount(e.target.value)} />
+                      <Label className="text-[10px] font-bold uppercase text-indigo-600">Duration <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                      <Input type="number" className={cn("bg-white h-9 rounded-lg", editFormErrors.duration && "border-red-400 focus-visible:ring-red-400")} placeholder="1" min="1" value={editRecurringCount} onChange={(e) => {
+                        setEditRecurringCount(e.target.value);
+                        setEditFormErrors((prev) => ({ ...prev, duration: undefined }));
+                      }} />
+                      {editFormErrors.duration && <p className="text-[11px] text-red-500">{editFormErrors.duration}</p>}
                     </div>
                   </div>
                   <p className="text-[10px] text-indigo-400 mt-3 font-medium">
@@ -595,7 +661,7 @@ export default function Packages() {
       <Dialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
         <DialogContent className="sm:max-w-[400px] rounded-2xl">
           <DialogHeader>
-              <DialogTitle className="text-xl font-display font-bold text-slate-900">Archive Package?</DialogTitle>
+              <DialogTitle className="text-xl font-display font-bold text-slate-900">Archive Batch?</DialogTitle>
             <DialogDescription className="text-slate-500 pt-2">
               Are you sure you want to archive <span className="font-bold text-slate-900">{deletingPackage?.name}</span>? 
               It will remain visible only as archived data.

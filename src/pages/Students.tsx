@@ -56,7 +56,7 @@ import { toast } from 'sonner';
 import { StudentDetailSheet } from '@/components/StudentDetailSheet';
 import { addStudentEnrollment, createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
 import type { Student, StudentEnrollment } from '@/types';
-import { formatDateDMY } from '@/lib/utils';
+import { cn, formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 
 export default function Students() {
@@ -86,6 +86,13 @@ export default function Students() {
   const [existingStudentSearch, setExistingStudentSearch] = React.useState('');
   const [selectedExistingStudentId, setSelectedExistingStudentId] = React.useState<string | null>(null);
   const [studentsPage, setStudentsPage] = React.useState(1);
+  const [addStudentErrors, setAddStudentErrors] = React.useState<{
+    name?: string;
+    sportId?: string;
+    packageId?: string;
+    phone?: string;
+    email?: string;
+  }>({});
   
   const [newStudent, setNewStudent] = React.useState({
     name: '',
@@ -194,10 +201,34 @@ export default function Students() {
   };
 
   const handleSubmitStudent = async () => {
-    if (!newStudent.name || !newStudent.packageId || (!selectedExistingStudent && !newStudent.sportId)) {
-      toast.error('Please fill in all required fields');
+    const nextErrors: {
+      name?: string;
+      sportId?: string;
+      packageId?: string;
+      phone?: string;
+      email?: string;
+    } = {};
+
+    if (!newStudent.name.trim()) {
+      nextErrors.name = 'Student name is required.';
+    }
+    if (!selectedExistingStudent && !newStudent.sportId) {
+      nextErrors.sportId = 'Sport is required.';
+    }
+    if (!newStudent.packageId) {
+      nextErrors.packageId = 'Batch is required.';
+    }
+    if (!selectedExistingStudent && !newStudent.phone.trim()) {
+      nextErrors.phone = 'Phone number is required.';
+    }
+
+    if (Object.keys(nextErrors).length > 0) {
+      setAddStudentErrors(nextErrors);
+      toast.error('Please fill the required fields marked in red.');
       return;
     }
+
+    setAddStudentErrors({});
 
     const duplicatePhoneStudent = studentRows.find((student) => {
       const samePhone = normalizePhone(student.phone) === normalizedNewPhone;
@@ -209,6 +240,7 @@ export default function Students() {
       : null;
 
     if (!selectedExistingStudent && duplicatePhoneStudent) {
+      setAddStudentErrors((prev) => ({ ...prev, phone: 'Phone number already exists for another student.' }));
       setSelectedExistingStudentId(duplicatePhoneStudent.id);
       setExistingStudentSearch(duplicatePhoneStudent.phone);
       setNewStudent((prev) => ({
@@ -217,11 +249,12 @@ export default function Students() {
         phone: duplicatePhoneStudent.phone,
         email: duplicatePhoneStudent.email || '',
       }));
-      toast.info('Phone number already exists. Loaded the existing student so you can update the package instead.');
+      toast.info('Phone number already exists. Loaded the existing student so you can update the batch instead.');
       return;
     }
 
     if (duplicateEmailStudent) {
+      setAddStudentErrors((prev) => ({ ...prev, email: 'Email already exists for another student.' }));
       toast.error('Email already exists for another student. Use the existing student record instead of creating a duplicate.');
       return;
     }
@@ -264,7 +297,7 @@ export default function Students() {
           ];
         });
 
-        toast.success(`Package added for ${newStudent.name}`);
+        toast.success(`Batch added for ${newStudent.name}`);
       } else {
         const created = await createStudent({
           name: newStudent.name,
@@ -300,6 +333,7 @@ export default function Students() {
       setIsAddDialogOpen(false);
       setSelectedExistingStudentId(null);
       setExistingStudentSearch('');
+      setAddStudentErrors({});
       setNewStudent({
         name: '',
         email: '',
@@ -351,7 +385,7 @@ export default function Students() {
 
     return [{
       sportName: fallbackPackage?.sportName ?? editingStudent.sportName ?? 'Sport',
-      packageName: fallbackPackage?.name ?? editingStudent.packageName ?? 'Package',
+      packageName: fallbackPackage?.name ?? editingStudent.packageName ?? 'Batch',
       price: fallbackPackage?.price ?? 0,
     }];
   }, [editingStudent?.id, editingStudent?.packageId, editingStudent?.packageName, editingStudent?.sportName, enrollmentRows, packages]);
@@ -471,10 +505,10 @@ export default function Students() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-[500px] rounded-2xl">
               <DialogHeader>
-                <DialogTitle className="text-2xl font-display font-bold text-slate-900">{selectedExistingStudent ? 'Update Student Package' : 'Add New Student'}</DialogTitle>
+                <DialogTitle className="text-2xl font-display font-bold text-slate-900">{selectedExistingStudent ? 'Update Student Batch' : 'Add New Student'}</DialogTitle>
                 {!selectedExistingStudent && (
                   <DialogDescription className="text-slate-500">
-                    Register a new student and enroll them in a package.
+                    Register a new student and enroll them in a batch.
                   </DialogDescription>
                 )}
               </DialogHeader>
@@ -526,29 +560,40 @@ export default function Students() {
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <Label htmlFor="add-name" className="text-xs font-bold uppercase text-slate-500">Student Name</Label>
+                  <Label htmlFor="add-name" className="text-xs font-bold uppercase text-slate-500">
+                    Student Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span>
+                  </Label>
                   <div className="relative">
                     <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                     <Input 
                       id="add-name" 
                       placeholder="Enter full name"
                       value={newStudent.name}
-                      onChange={(e) => setNewStudent({...newStudent, name: e.target.value})}
-                      className="pl-10 h-11 rounded-xl"
+                      onChange={(e) => {
+                        setNewStudent({...newStudent, name: e.target.value});
+                        setAddStudentErrors((prev) => ({ ...prev, name: undefined }));
+                      }}
+                      className={cn("pl-10 h-11 rounded-xl", addStudentErrors.name && "border-red-400 focus-visible:ring-red-400")}
                       disabled={Boolean(selectedExistingStudent)}
                     />
                   </div>
+                  {addStudentErrors.name && <p className="text-[11px] text-red-500">{addStudentErrors.name}</p>}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-bold uppercase text-slate-500">{selectedExistingStudent ? 'Current Sport (Reference)' : 'Select Sport'}</Label>
+                    <Label className="text-xs font-bold uppercase text-slate-500">
+                      {selectedExistingStudent ? 'Current Sport (Reference)' : (<>{'Select Sport '}<span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></>)}
+                    </Label>
                     <Select 
                       value={newStudent.sportId} 
-                      onValueChange={(v) => setNewStudent({...newStudent, sportId: v, packageId: ''})}
+                      onValueChange={(v) => {
+                        setNewStudent({...newStudent, sportId: v, packageId: ''});
+                        setAddStudentErrors((prev) => ({ ...prev, sportId: undefined }));
+                      }}
                       disabled={Boolean(selectedExistingStudent)}
                     >
-                      <SelectTrigger className="h-11 rounded-xl">
+                      <SelectTrigger className={cn("h-11 rounded-xl", addStudentErrors.sportId && "border-red-400 focus:ring-red-400")}>
                         <SelectValue placeholder="Select Sport">
                           {selectedSport ? selectedSport.name : undefined}
                         </SelectValue>
@@ -559,10 +604,13 @@ export default function Students() {
                         ))}
                       </SelectContent>
                     </Select>
+                    {addStudentErrors.sportId && <p className="text-[11px] text-red-500">{addStudentErrors.sportId}</p>}
                   </div>
 
                   <div className="flex flex-col gap-2">
-                    <Label className="text-xs font-bold uppercase text-slate-500">{selectedExistingStudent ? 'Select New Package (Any Sport)' : 'Select Package'}</Label>
+                    <Label className="text-xs font-bold uppercase text-slate-500">
+                      {selectedExistingStudent ? 'Select New Batch (Any Sport)' : 'Select Batch'} <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span>
+                    </Label>
                     <Select 
                       value={newStudent.packageId} 
                       onValueChange={(v) => {
@@ -577,11 +625,12 @@ export default function Students() {
                         }
 
                         setNewStudent({...newStudent, packageId: v});
+                        setAddStudentErrors((prev) => ({ ...prev, packageId: undefined }));
                       }}
                       disabled={!selectedExistingStudent && !newStudent.sportId}
                     >
-                      <SelectTrigger className="h-11 rounded-xl">
-                        <SelectValue placeholder="Select Package">
+                      <SelectTrigger className={cn("h-11 rounded-xl", addStudentErrors.packageId && "border-red-400 focus:ring-red-400")}>
+                        <SelectValue placeholder="Select Batch">
                           {selectedPackage ? selectedPackage.name : undefined}
                         </SelectValue>
                       </SelectTrigger>
@@ -592,8 +641,9 @@ export default function Students() {
                       </SelectContent>
                     </Select>
                     {selectedExistingStudent && (
-                      <p className="text-[11px] text-slate-400">Already enrolled packages are hidden.</p>
+                      <p className="text-[11px] text-slate-400">Already enrolled batches are hidden.</p>
                     )}
+                    {addStudentErrors.packageId && <p className="text-[11px] text-red-500">{addStudentErrors.packageId}</p>}
                   </div>
                 </div>
 
@@ -628,18 +678,22 @@ export default function Students() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="add-phone" className="text-xs font-bold uppercase text-slate-500">Phone Number</Label>
+                    <Label htmlFor="add-phone" className="text-xs font-bold uppercase text-slate-500">Phone Number <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <Input 
                         id="add-phone" 
                         placeholder="e.g. 9876543210"
                         value={newStudent.phone}
-                        onChange={(e) => setNewStudent({...newStudent, phone: e.target.value})}
-                        className="pl-10 h-11 rounded-xl"
+                        onChange={(e) => {
+                          setNewStudent({...newStudent, phone: e.target.value});
+                          setAddStudentErrors((prev) => ({ ...prev, phone: undefined }));
+                        }}
+                        className={cn("pl-10 h-11 rounded-xl", addStudentErrors.phone && "border-red-400 focus-visible:ring-red-400")}
                         disabled={Boolean(selectedExistingStudent)}
                       />
                     </div>
+                    {addStudentErrors.phone && <p className="text-[11px] text-red-500">{addStudentErrors.phone}</p>}
                   </div>
                   <div className="flex flex-col gap-2">
                     <Label htmlFor="add-email" className="text-xs font-bold uppercase text-slate-500">Email ID</Label>
@@ -650,11 +704,15 @@ export default function Students() {
                         type="email"
                         placeholder="student@example.com"
                         value={newStudent.email}
-                        onChange={(e) => setNewStudent({...newStudent, email: e.target.value})}
-                        className="pl-10 h-11 rounded-xl"
+                        onChange={(e) => {
+                          setNewStudent({...newStudent, email: e.target.value});
+                          setAddStudentErrors((prev) => ({ ...prev, email: undefined }));
+                        }}
+                        className={cn("pl-10 h-11 rounded-xl", addStudentErrors.email && "border-red-400 focus-visible:ring-red-400")}
                         disabled={Boolean(selectedExistingStudent)}
                       />
                     </div>
+                    {addStudentErrors.email && <p className="text-[11px] text-red-500">{addStudentErrors.email}</p>}
                   </div>
                 </div>
 
@@ -705,7 +763,7 @@ export default function Students() {
               <TableHead className="w-[280px]">Student Name</TableHead>
               <TableHead>Contact</TableHead>
               <TableHead>Sports</TableHead>
-              <TableHead>Current Package</TableHead>
+              <TableHead>Current Batch</TableHead>
               <TableHead className="w-[50px]"></TableHead>
             </TableRow>
           </TableHeader>
@@ -854,7 +912,7 @@ export default function Students() {
               </div>
 
               <div className="flex flex-col gap-2">
-                <Label className="text-xs font-bold uppercase text-slate-500">Enrolled Packages</Label>
+                <Label className="text-xs font-bold uppercase text-slate-500">Enrolled Batches</Label>
                 <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 min-h-11">
                   {editingStudentPackages.length > 0 ? (
                     editingStudentPackages.map((pkg) => (
@@ -863,10 +921,10 @@ export default function Students() {
                       </Badge>
                     ))
                   ) : (
-                    <p className="text-sm text-slate-500">No package history found.</p>
+                    <p className="text-sm text-slate-500">No batch history found.</p>
                   )}
                 </div>
-                <p className="text-[11px] text-slate-400">This profile shows all sport and package enrollments for this student.</p>
+                <p className="text-[11px] text-slate-400">This profile shows all sport and batch enrollments for this student.</p>
               </div>
             </div>
           )}

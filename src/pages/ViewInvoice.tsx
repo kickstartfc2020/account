@@ -568,7 +568,7 @@ export default function ViewInvoice() {
                     </p>
                     <p className="text-[10px] text-gray-500 leading-relaxed font-bold flex gap-2">
                       <span className="text-[#D4FF00]">02.</span>
-                      Package validity starts from the date of first session.
+                      Batch validity starts from the date of first session.
                     </p>
                     <p className="text-[10px] text-gray-500 leading-relaxed font-bold flex gap-2">
                       <span className="text-[#D4FF00]">03.</span>

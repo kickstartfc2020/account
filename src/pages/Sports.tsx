@@ -72,6 +72,7 @@ export default function Sports() {
   const [sportToToggle, setSportToToggle] = React.useState<Sport | null>(null);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isToggling, setIsToggling] = React.useState(false);
+  const [newSportNameError, setNewSportNameError] = React.useState('');
   
   const [newSportName, setNewSportName] = React.useState('');
   const [selectedIcon, setSelectedIcon] = React.useState('Trophy');
@@ -97,9 +98,12 @@ export default function Sports() {
 
   const handleAddSport = async () => {
     if (!newSportName.trim()) {
+      setNewSportNameError('Sport name is required.');
       toast.error('Please enter a sport name');
       return;
     }
+
+    setNewSportNameError('');
 
     setIsSaving(true);
     try {
@@ -119,6 +123,7 @@ export default function Sports() {
       setAddDialogOpen(false);
       setNewSportName('');
       setSelectedIcon('Trophy');
+      setNewSportNameError('');
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to create sport.';
       reportOperationalError('sport.create', 'Failed to create sport.', error, { name: newSportName });
@@ -189,14 +194,18 @@ export default function Sports() {
             </DialogHeader>
             <div className="grid gap-6 py-4">
               <div className="flex flex-col gap-2">
-                <Label htmlFor="name" className="text-xs font-bold uppercase text-slate-500">Sport Name</Label>
+                <Label htmlFor="name" className="text-xs font-bold uppercase text-slate-500">Sport Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
                 <Input 
                   id="name" 
                   placeholder="e.g. Swimming, Karate, Tennis" 
                   value={newSportName}
-                  onChange={(e) => setNewSportName(e.target.value)}
-                  className="h-11 rounded-xl"
+                  onChange={(e) => {
+                    setNewSportName(e.target.value);
+                    setNewSportNameError('');
+                  }}
+                  className={cn("h-11 rounded-xl", newSportNameError && "border-red-400 focus-visible:ring-red-400")}
                 />
+                {newSportNameError && <p className="text-[11px] text-red-500">{newSportNameError}</p>}
               </div>
               <div className="flex flex-col gap-3">
                 <Label className="text-xs font-bold uppercase text-slate-500">Select Symbol</Label>
@@ -299,7 +308,7 @@ export default function Sports() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-slate-500">
                         <CreditCard className="w-4 h-4" />
-                        <span className="text-sm font-medium">Packages</span>
+                        <span className="text-sm font-medium">Batches</span>
                       </div>
                       <span className={cn("font-bold", isInactive ? "text-slate-400" : "text-slate-900")}>{sport.packagesCount}</span>
                     </div>
@@ -317,7 +326,7 @@ export default function Sports() {
                       <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 flex items-start gap-2.5">
                         <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
                         <p className="text-[10px] text-amber-700 font-bold leading-tight">
-                          Sport is currently disabled. Active students can still finish their packages, but new registrations are blocked.
+                          Sport is currently disabled. Active students can still finish their batches, but new registrations are blocked.
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -326,7 +335,7 @@ export default function Sports() {
                           onClick={() => navigate('/packages')}
                           className="flex-1 text-xs font-bold h-9 border-slate-200 text-slate-500 hover:bg-slate-100 rounded-lg"
                         >
-                          Packages
+                          Batches
                         </Button>
                         <Button 
                           variant="outline" 
@@ -344,7 +353,7 @@ export default function Sports() {
                         onClick={() => navigate('/packages')}
                         className="flex-1 text-xs font-bold h-9 border-indigo-100 text-indigo-600 bg-indigo-50/30 hover:bg-indigo-600 hover:text-white transition-all rounded-lg"
                       >
-                        Packages
+                        Batches
                       </Button>
                       <Button 
                         variant="outline" 
