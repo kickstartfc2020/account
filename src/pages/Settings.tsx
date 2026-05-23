@@ -57,6 +57,7 @@ export default function Settings() {
   });
 
   const [isSaving, setIsSaving] = React.useState(false);
+  const [orgFieldErrors, setOrgFieldErrors] = React.useState<{ name?: string; code?: string }>({});
   const [isUploadingLogo, setIsUploadingLogo] = React.useState(false);
   const [isUploadingQr, setIsUploadingQr] = React.useState(false);
   const [isResettingInvoices, setIsResettingInvoices] = React.useState(false);
@@ -135,13 +136,26 @@ export default function Settings() {
 
   const onOrgFieldChange = (field: keyof typeof organization, value: string) => {
     setOrganization((prev) => ({ ...prev, [field]: value }));
+    if (field === 'name' || field === 'code') {
+      setOrgFieldErrors((prev) => ({ ...prev, [field]: undefined }));
+    }
   };
 
   const handleSaveOrganization = async () => {
+    const nextErrors: { name?: string; code?: string } = {};
+    if (!organization.name.trim()) nextErrors.name = 'Academy name is required.';
+    if (!organization.code.trim()) nextErrors.code = 'Registration ID is required.';
+
+    if (Object.keys(nextErrors).length > 0) {
+      setOrgFieldErrors(nextErrors);
+    }
+
     if (!organization.name.trim() || !organization.code.trim()) {
       toast.error('Academy name and registration ID are required.');
       return;
     }
+
+    setOrgFieldErrors({});
     setIsSaving(true);
     try {
       await updateOrganizationDetails({
@@ -361,12 +375,14 @@ export default function Settings() {
 
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Academy Name</label>
-                      <Input value={organization.name} onChange={(e) => onOrgFieldChange('name', e.target.value)} />
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Academy Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
+                      <Input value={organization.name} onChange={(e) => onOrgFieldChange('name', e.target.value)} className={orgFieldErrors.name ? 'border-red-400 focus-visible:ring-red-400' : ''} />
+                      {orgFieldErrors.name && <p className="text-[11px] text-red-500">{orgFieldErrors.name}</p>}
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registration ID</label>
-                      <Input value={organization.code} onChange={(e) => onOrgFieldChange('code', e.target.value)} />
+                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registration ID <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
+                      <Input value={organization.code} onChange={(e) => onOrgFieldChange('code', e.target.value)} className={orgFieldErrors.code ? 'border-red-400 focus-visible:ring-red-400' : ''} />
+                      {orgFieldErrors.code && <p className="text-[11px] text-red-500">{orgFieldErrors.code}</p>}
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">GST Number</label>

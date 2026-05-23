@@ -139,7 +139,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
 
       summaries.push({
         sportName,
-        packageName: enrollment.packageName || packageDetails?.name || 'Package',
+        packageName: enrollment.packageName || packageDetails?.name || 'Batch',
         packageId: enrollment.packageId,
         startDateLabel,
         expiryDateLabel,
@@ -206,7 +206,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
 
               <div className="space-y-6">
                 <div className="flex items-center justify-between border-b pb-2">
-                  <h4 className="font-display font-bold text-slate-900">Enrolled Packages</h4>
+                  <h4 className="font-display font-bold text-slate-900">Enrolled Batches</h4>
                   <Badge variant="outline" className="bg-indigo-50 text-indigo-600 border-indigo-100">{enrolledPackages.length} Total</Badge>
                 </div>
 
@@ -218,7 +218,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
                       </Badge>
                     ))
                   ) : (
-                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200">{student.packageName || 'No package history'}</Badge>
+                    <Badge variant="outline" className="bg-slate-50 text-slate-500 border-slate-200">{student.packageName || 'No batch history'}</Badge>
                   )}
                 </div>
                 
@@ -231,7 +231,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
                           <p className="text-sm font-bold text-indigo-900 mt-1">{summary.sportName}</p>
                         </div>
                         <Badge variant="outline" className="bg-white text-indigo-700 border-indigo-200 text-[10px] uppercase">
-                          {summary.packageName || 'No package'}
+                          {summary.packageName || 'No batch'}
                         </Badge>
                       </div>
 

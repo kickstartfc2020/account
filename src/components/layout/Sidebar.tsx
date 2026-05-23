@@ -29,7 +29,7 @@ const superAdminItems = [
 const branchAdminItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
   { icon: Trophy, label: 'Sports', path: '/sports' },
-  { icon: CreditCard, label: 'Packages', path: '/packages' },
+  { icon: CreditCard, label: 'Batches', path: '/packages' },
   { icon: Users, label: 'Students', path: '/students' },
   { icon: RefreshCcw, label: 'Renewals', path: '/renewals' },
   { icon: Receipt, label: 'Invoices', path: '/invoices' },

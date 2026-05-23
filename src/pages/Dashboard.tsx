@@ -244,7 +244,7 @@ export default function Dashboard() {
                 <TableRow>
                   <TableHead className="text-[10px] uppercase font-bold text-gray-500">Student</TableHead>
                   <TableHead className="text-[10px] uppercase font-bold text-gray-500">Sport</TableHead>
-                  <TableHead className="text-[10px] uppercase font-bold text-gray-500">Package</TableHead>
+                  <TableHead className="text-[10px] uppercase font-bold text-gray-500">Batch</TableHead>
                   <TableHead className="text-[10px] uppercase font-bold text-gray-500">Status</TableHead>
                 </TableRow>
               </TableHeader>

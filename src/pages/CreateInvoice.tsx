@@ -87,6 +87,11 @@ export default function CreateInvoice() {
   const [manualCustomerPhone, setManualCustomerPhone] = React.useState('');
   const [manualCustomerGst, setManualCustomerGst] = React.useState('');
   const [manualCustomerPan, setManualCustomerPan] = React.useState('');
+  const [manualFieldErrors, setManualFieldErrors] = React.useState<{
+    name?: string;
+    email?: string;
+    manualItems?: string;
+  }>({});
   const submitRequestKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
@@ -245,13 +250,29 @@ export default function CreateInvoice() {
       return;
     }
 
+    const nextManualErrors: { name?: string; email?: string; manualItems?: string } = {};
+
+    if (isManualMode && !manualCustomerName.trim()) {
+      nextManualErrors.name = 'Name is required.';
+    }
+    if (isManualMode && !manualCustomerEmail.trim()) {
+      nextManualErrors.email = 'Email is required.';
+    }
+    if (isManualMode && manualSubtotal <= 0) {
+      nextManualErrors.manualItems = 'At least one item must have description, quantity, and rate greater than 0.';
+    }
+
+    if (Object.keys(nextManualErrors).length > 0) {
+      setManualFieldErrors(nextManualErrors);
+    }
+
     if (isManualMode && (!manualCustomerName.trim() || !manualCustomerEmail.trim())) {
       toast.error('Name and email are required for manual invoices.');
       return;
     }
 
     if (!selectedStudentForWrite || !effectivePackage || !effectiveSport) {
-      toast.error('Select a student and package before finalizing.');
+      toast.error('Select a student and batch before finalizing.');
       return;
     }
 
@@ -260,8 +281,12 @@ export default function CreateInvoice() {
       return;
     }
 
+    if (isManualMode) {
+      setManualFieldErrors({});
+    }
+
     if (!isManualMode && hasFullyPaidInvoice) {
-      toast.error('This student has already paid for their package. The base amount is locked at ₹0.');
+      toast.error('This student has already paid for their batch. The base amount is locked at ₹0.');
       return;
     }
 
@@ -396,7 +421,7 @@ export default function CreateInvoice() {
             className="bg-kickstart-forest text-white gap-2 h-9 px-6 text-xs font-bold uppercase hover:bg-kickstart-forest/90"
             onClick={() => void handleFinalizeInvoice()}
             disabled={finalizeDisabled}
-            title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this package' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
+            title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this batch' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
           >
             {isSaving ? 'Saving...' : 'Finalize Invoice'}
           </Button>
@@ -416,12 +441,14 @@ export default function CreateInvoice() {
               </div>
               <div className="space-y-3">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-gray-500">Name</label>
-                  <Input value={manualCustomerName} onChange={(e) => { setManualCustomerName(e.target.value); setIsGenerated(false); }} placeholder="Customer full name" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
+                  <Input value={manualCustomerName} onChange={(e) => { setManualCustomerName(e.target.value); setManualFieldErrors((prev) => ({ ...prev, name: undefined })); setIsGenerated(false); }} placeholder="Customer full name" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.name && "border-red-400 focus:ring-red-400")} />
+                  {manualFieldErrors.name && <p className="text-[11px] text-red-500">{manualFieldErrors.name}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-gray-500">Email</label>
-                  <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setIsGenerated(false); }} placeholder="customer@email.com" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Email <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
+                  <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setManualFieldErrors((prev) => ({ ...prev, email: undefined })); setIsGenerated(false); }} placeholder="customer@email.com" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.email && "border-red-400 focus:ring-red-400")} />
+                  {manualFieldErrors.email && <p className="text-[11px] text-red-500">{manualFieldErrors.email}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-gray-500">Number (Optional)</label>
@@ -558,7 +585,7 @@ export default function CreateInvoice() {
               {isManualMode && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Manual Items</label>
+                    <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Manual Items <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
                     <Button
                       type="button"
                       size="sm"
@@ -581,20 +608,21 @@ export default function CreateInvoice() {
                     {manualItems.map((item, index) => (
                       <div key={item.id} className="grid grid-cols-12 gap-2 items-end rounded-xl border border-kickstart-lime/20 bg-white p-2">
                         <div className="col-span-6 space-y-1">
-                          <label className="text-[9px] font-bold uppercase text-gray-500">Description</label>
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Description <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
                           <Input
                             value={item.description}
                             onChange={(e) => {
                               const value = e.target.value;
                               setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, description: value } : row));
+                              setManualFieldErrors((prev) => ({ ...prev, manualItems: undefined }));
                               setIsGenerated(false);
                             }}
+                            className={cn("h-9", manualFieldErrors.manualItems && !item.description.trim() && "border-red-400 focus-visible:ring-red-400")}
                             placeholder="e.g. Summer camp fee"
-                            className="h-9"
                           />
                         </div>
                         <div className="col-span-2 space-y-1">
-                          <label className="text-[9px] font-bold uppercase text-gray-500">Qty</label>
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Qty <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
                           <Input
                             type="number"
                             min="0"
@@ -603,13 +631,14 @@ export default function CreateInvoice() {
                             onChange={(e) => {
                               const value = e.target.value;
                               setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, quantity: value } : row));
+                              setManualFieldErrors((prev) => ({ ...prev, manualItems: undefined }));
                               setIsGenerated(false);
                             }}
-                            className="h-9"
+                            className={cn("h-9", manualFieldErrors.manualItems && (Number(item.quantity || '0') || 0) <= 0 && "border-red-400 focus-visible:ring-red-400")}
                           />
                         </div>
                         <div className="col-span-3 space-y-1">
-                          <label className="text-[9px] font-bold uppercase text-gray-500">Rate</label>
+                          <label className="text-[9px] font-bold uppercase text-gray-500">Rate <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
                           <Input
                             type="number"
                             min="0"
@@ -618,9 +647,10 @@ export default function CreateInvoice() {
                             onChange={(e) => {
                               const value = e.target.value;
                               setManualItems((prev) => prev.map((row) => row.id === item.id ? { ...row, unitPrice: value } : row));
+                              setManualFieldErrors((prev) => ({ ...prev, manualItems: undefined }));
                               setIsGenerated(false);
                             }}
-                            className="h-9"
+                            className={cn("h-9", manualFieldErrors.manualItems && (Number(item.unitPrice || '0') || 0) <= 0 && "border-red-400 focus-visible:ring-red-400")}
                           />
                         </div>
                         <div className="col-span-1 flex justify-end">
@@ -645,6 +675,7 @@ export default function CreateInvoice() {
                       </div>
                     ))}
                   </div>
+                  {manualFieldErrors.manualItems && <p className="text-[11px] text-red-500">{manualFieldErrors.manualItems}</p>}
                 </div>
               )}
 
@@ -700,7 +731,7 @@ export default function CreateInvoice() {
                 className="w-full bg-kickstart-forest hover:bg-kickstart-forest/90 shadow-lg shadow-kickstart-forest/10 h-12 font-bold text-xs uppercase tracking-wider"
                 onClick={() => void handleFinalizeInvoice()}
                 disabled={finalizeDisabled}
-                title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this package' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
+                title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this batch' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
               >
                 {isSaving ? 'Saving...' : isGenerated ? 'Regenerate Invoice' : 'Generate Invoice'}
               </Button>
@@ -718,7 +749,7 @@ export default function CreateInvoice() {
                   <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
                   <div>
                     <p className="text-xs font-bold text-amber-800">Invoice Already Exists</p>
-                    <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their package. The base amount is locked at zero.</p>
+                    <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their batch. The base amount is locked at zero.</p>
                   </div>
                 </div>
               ) : !isManualMode && outstandingBalanceAmount > 0 ? (
@@ -929,7 +960,7 @@ export default function CreateInvoice() {
                 ) : (
                   <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 hover:bg-gray-50/50 transition-colors rounded-xl">
                     <div className="col-span-6">
-                      <p className="font-bold text-gray-900 text-base tracking-tight">{effectivePackage?.name || 'Select Package'}</p>
+                      <p className="font-bold text-gray-900 text-base tracking-tight">{effectivePackage?.name || 'Select Batch'}</p>
                       <p className="text-xs text-gray-400 mt-2 font-medium">{`${activeSportName} Training • ${effectivePackage?.durationMonths || 1} Month Access`}</p>
                     </div>
                     <div className="col-span-2 text-center font-bold text-gray-900 bg-gray-100 w-fit mx-auto px-3 py-1 rounded-lg">
@@ -990,7 +1021,7 @@ export default function CreateInvoice() {
                       </p>
                       <p className="text-[10px] text-gray-500 leading-relaxed font-bold flex gap-2">
                         <span className="text-kickstart-lime">02.</span>
-                        Package validity starts from the date of first session.
+                        Batch validity starts from the date of first session.
                       </p>
                       <p className="text-[10px] text-gray-500 leading-relaxed font-bold flex gap-2">
                         <span className="text-kickstart-lime">03.</span>
