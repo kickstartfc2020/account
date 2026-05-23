@@ -18,19 +18,26 @@ import { cancelInvoice } from '@/lib/invoiceMutations';
 import { formatDateDMY } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Invoice } from '@/types';
+import { parseManualInvoiceNotes } from '@/lib/manualInvoice';
 
 function mapInvoiceRowToInvoice(row: any): Invoice {
   const student = row.students as { name: string; ref_id: string | null } | null;
   const branch = row.branches as { name: string } | null;
   const payments = (row.payments as Array<{ method: string; status: string }>) ?? [];
   const items = (row.invoice_items as Array<{ description: string }>) ?? [];
+  const manualBillTo = parseManualInvoiceNotes(row.notes as string | null | undefined);
   const completedPayment = payments.find((payment) => payment.status === 'completed');
 
   return {
     id: row.invoice_number as string,
     studentId: row.student_id as string,
-    studentRefId: student?.ref_id ?? undefined,
-    studentName: student?.name ?? '',
+    studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
+    studentName: manualBillTo?.name ?? (student?.name ?? ''),
+    manualCustomerName: manualBillTo?.name,
+    manualCustomerEmail: manualBillTo?.email,
+    manualCustomerPhone: manualBillTo?.phone,
+    manualCustomerGst: manualBillTo?.gst,
+    manualCustomerPan: manualBillTo?.pan,
     amount: row.subtotal as number,
     tax: row.tax_total as number,
     total: row.total_amount as number,
@@ -76,7 +83,7 @@ export default function ViewInvoice() {
       try {
         const { data, error } = await (supabase as any)
           .from('invoices')
-          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)')
+          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)')
           .eq('invoice_number', id)
           .maybeSingle();
 
@@ -158,6 +165,14 @@ export default function ViewInvoice() {
 
   const student = students.find(s => s.id === invoice.studentId);
   const location = locations.find(l => l.name === invoice.locationName) || locations[0];
+  const isManualInvoice = Boolean(invoice.manualCustomerName);
+  const billToName = invoice.manualCustomerName || invoice.studentName;
+  const billToSecondary = isManualInvoice
+    ? (invoice.manualCustomerEmail || '—')
+    : `Student ID: ${invoice.studentRefId || invoice.studentId}`;
+  const billToTertiary = isManualInvoice
+    ? (invoice.manualCustomerPhone || '—')
+    : invoice.locationName;
   const invoiceStatus = isCancelledLocally ? 'cancelled' : invoice.status;
   const isCancelled = invoiceStatus === 'cancelled';
   const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
@@ -411,9 +426,15 @@ export default function ViewInvoice() {
                 </h3>
                 <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-[#D4FF00]/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
-                  <p className="text-lg font-bold text-gray-900 leading-tight">{invoice.studentName}</p>
-                  <p className="text-sm font-medium text-gray-500">Student ID: {invoice.studentRefId || invoice.studentId}</p>
-                  <p className="text-sm font-medium text-gray-500">{invoice.locationName}</p>
+                  <p className="text-lg font-bold text-gray-900 leading-tight">{billToName}</p>
+                  <p className="text-sm font-medium text-gray-500">{billToSecondary}</p>
+                  <p className="text-sm font-medium text-gray-500">{billToTertiary}</p>
+                  {isManualInvoice && (
+                    <div className="pt-2 space-y-1">
+                      <p className="text-xs text-gray-500">GST: {invoice.manualCustomerGst || '—'}</p>
+                      <p className="text-xs text-gray-500">PAN: {invoice.manualCustomerPan || '—'}</p>
+                    </div>
+                  )}
                   <div className="pt-2">
                     <Badge variant="outline" className={invoiceStatus === 'cancelled' ? 'bg-red-50 text-red-700 border-red-200 text-[10px] font-bold uppercase' : 'bg-[#D4FF00]/10 text-[#1A3C34] border-[#D4FF00]/20 text-[10px] font-bold uppercase'}>
                       {invoiceStatus === 'cancelled' ? 'Invoice Cancelled' : 'Payment Received'}
@@ -484,7 +505,9 @@ export default function ViewInvoice() {
               <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 text-slate-900 font-medium">
                 <div className="col-span-8">
                   <p className="font-bold text-gray-900 text-base tracking-tight">{invoice.packageName}</p>
-                  <p className="text-xs text-gray-400 mt-2 font-medium">Monthly Training • 1 Month Access</p>
+                  {!isManualInvoice && (
+                    <p className="text-xs text-gray-400 mt-2 font-medium">Monthly Training • 1 Month Access</p>
+                  )}
                 </div>
                 <div className="col-span-4 text-right font-black text-gray-900 text-base">
                   ₹{invoice.amount.toLocaleString()}

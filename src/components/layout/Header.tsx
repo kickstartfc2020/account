@@ -12,6 +12,7 @@ import { useLocations, useSports } from '@/hooks/useData';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { Separator } from '@/components/ui/separator';
 import {
   Dialog,
   DialogContent,
@@ -41,22 +42,17 @@ export function Header() {
 
   const handleCreateInvoiceClick = () => {
     if (sportsLoading) return;
-    if (sports.length === 0) {
-      toast.error('No sports available. Please create a sport first.');
-      navigate('/sports');
-      return;
-    }
-
-    if (sports.length === 1) {
-      navigate('/invoices/create');
-    } else {
-      setIsSportDialogOpen(true);
-    }
+    setIsSportDialogOpen(true);
   };
 
   const selectSport = (sportId: string) => {
     setIsSportDialogOpen(false);
     navigate(`/invoices/create?sportId=${sportId}`);
+  };
+
+  const selectManualInvoice = () => {
+    setIsSportDialogOpen(false);
+    navigate('/invoices/create?mode=manual');
   };
 
   return (
@@ -93,7 +89,7 @@ export function Header() {
           <DialogHeader>
             <DialogTitle className="text-xl font-bold font-display">Select Sport</DialogTitle>
             <DialogDescription>
-              Which sport is this invoice for?
+              Choose a sport or continue with manual invoice creation.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-4">
@@ -108,6 +104,18 @@ export function Header() {
                 <ChevronDown className="w-4 h-4 -rotate-90 text-gray-400 group-hover:text-indigo-500" />
               </Button>
             ))}
+            {sports.length === 0 && (
+              <p className="text-sm text-slate-500 py-2">No sports configured. You can still create a manual invoice.</p>
+            )}
+            <Separator className="my-1" />
+            <Button
+              variant="secondary"
+              className="h-14 justify-between px-6 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+              onClick={selectManualInvoice}
+            >
+              <span className="font-bold">Manual Invoice</span>
+              <ChevronDown className="w-4 h-4 -rotate-90 text-indigo-500" />
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

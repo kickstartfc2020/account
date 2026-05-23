@@ -34,6 +34,7 @@ import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { serializeManualInvoiceNotes } from '@/lib/manualInvoice';
 
 export default function CreateInvoice() {
   const { data: students } = useStudents();
@@ -46,10 +47,12 @@ export default function CreateInvoice() {
 
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const isManualMode = searchParams.get('mode') === 'manual';
   const sportId = searchParams.get('sportId');
   const sportFromQuery = sports.find((s) => s.id === sportId) ?? null;
-  const sport = sportFromQuery ?? sports[0] ?? null;
-  const activeSportId = sport?.id ?? '';
+  const sport = isManualMode ? null : (sportFromQuery ?? sports[0] ?? null);
+  const activeSportId = isManualMode ? '' : (sport?.id ?? '');
+  const activeSportName = isManualMode ? 'Manual Invoice' : (sport?.name ?? 'No Sport');
   
   const academy = useAcademyDetails();
   const defaultGstRatePercentage = React.useMemo(() => {
@@ -67,6 +70,12 @@ export default function CreateInvoice() {
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
+  const [manualDescription, setManualDescription] = React.useState('Manual invoice item');
+  const [manualCustomerName, setManualCustomerName] = React.useState('');
+  const [manualCustomerEmail, setManualCustomerEmail] = React.useState('');
+  const [manualCustomerPhone, setManualCustomerPhone] = React.useState('');
+  const [manualCustomerGst, setManualCustomerGst] = React.useState('');
+  const [manualCustomerPan, setManualCustomerPan] = React.useState('');
   const submitRequestKeyRef = React.useRef<string | null>(null);
 
   React.useEffect(() => {
@@ -82,13 +91,34 @@ export default function CreateInvoice() {
 
   React.useEffect(() => {
     submitRequestKeyRef.current = null;
-  }, [selectedStudentId, amount, discount, gstRate, paymentMode, activeSportId]);
+  }, [
+    selectedStudentId,
+    amount,
+    discount,
+    gstRate,
+    paymentMode,
+    activeSportId,
+    manualCustomerName,
+    manualCustomerEmail,
+    manualCustomerPhone,
+    manualCustomerGst,
+    manualCustomerPan,
+    manualDescription,
+  ]);
   
-  const selectedStudent = students.find(s => s.id === selectedStudentId);
+  const selectedStudent = students.find((s) => s.id === selectedStudentId);
+  const selectedStudentForWrite = isManualMode ? (selectedStudent ?? students[0] ?? null) : selectedStudent;
+
+  React.useEffect(() => {
+    if (isManualMode && !selectedStudentId && students.length > 0) {
+      setSelectedStudentId(students[0].id);
+    }
+  }, [isManualMode, selectedStudentId, students]);
 
   const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
 
   const sportFilteredStudentIds = React.useMemo(() => {
+    if (isManualMode) return new Set<string>();
     const ids = new Set<string>();
 
     studentEnrollments.forEach((enrollment) => {
@@ -99,12 +129,15 @@ export default function CreateInvoice() {
     });
 
     return ids;
-  }, [studentEnrollments, packages, activeSportId]);
+  }, [studentEnrollments, packages, activeSportId, isManualMode]);
 
-  const filteredStudents = students.filter(s => 
-    ((sportFilteredStudentIds.size > 0 ? sportFilteredStudentIds.has(s.id) : s.sportId === activeSportId)) &&
-    (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm))
-  );
+  const filteredStudents = students.filter((s) => {
+    const isInSportScope = isManualMode
+      ? true
+      : (sportFilteredStudentIds.size > 0 ? sportFilteredStudentIds.has(s.id) : s.sportId === activeSportId);
+    return isInSportScope &&
+      (s.name.toLowerCase().includes(searchTerm.toLowerCase()) || s.phone.includes(searchTerm));
+  });
 
   const visibleStudents = React.useMemo(() => {
     if (searchTerm.trim()) return filteredStudents;
@@ -113,41 +146,49 @@ export default function CreateInvoice() {
   
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
   const branch =
-    locations.find((location) => location.id === selectedStudent?.locationId) ??
+    locations.find((location) => location.id === selectedStudentForWrite?.locationId) ??
     locations.find((location) => location.id === currentBranchId) ??
     locations[0] ??
     null;
   const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) || packages.find((p) => p.sportId === activeSportId);
-  const packageMaxAmount = studentPackage?.price ?? null;
+  const fallbackManualPackage = React.useMemo(() => {
+    return packages.find((pkg) => pkg.name.toLowerCase().includes('manual')) ?? packages[0] ?? null;
+  }, [packages]);
+  const fallbackManualSport = React.useMemo(() => {
+    if (!fallbackManualPackage) return null;
+    return sports.find((item) => item.id === fallbackManualPackage.sportId) ?? null;
+  }, [sports, fallbackManualPackage]);
+  const effectivePackage = isManualMode ? (fallbackManualPackage ?? studentPackage ?? null) : studentPackage;
+  const effectiveSport = isManualMode ? (fallbackManualSport ?? null) : sport;
+  const packageMaxAmount = effectivePackage?.price ?? null;
   const activeStudentInvoices = studentPayments.filter((inv) => inv.status !== 'cancelled');
   const outstandingBalanceAmount = activeStudentInvoices.reduce((sum, inv) => sum + Math.max(0, inv.balanceAmount ?? 0), 0);
   const hasFullyPaidInvoice = activeStudentInvoices.some((inv) => (inv.balanceAmount ?? 0) <= 0);
-  const invoiceYear = new Date().getFullYear();
-  const currentYearInvoiceCount = invoices.filter((inv) => new Date(inv.date).getFullYear() === invoiceYear).length;
+  const currentInvoiceCount = invoices.length;
   const allowedBaseAmount = React.useMemo(() => {
-    if (!studentPackage) return 0;
+    if (isManualMode) return Number.MAX_SAFE_INTEGER;
+    if (!effectivePackage) return 0;
     if (hasFullyPaidInvoice) return 0;
     if (outstandingBalanceAmount > 0) {
-      return Math.min(outstandingBalanceAmount, studentPackage.price);
+      return Math.min(outstandingBalanceAmount, effectivePackage.price);
     }
-    return studentPackage.price;
-  }, [hasFullyPaidInvoice, outstandingBalanceAmount, studentPackage]);
-  const amountExceedsAllowedAmount = parseFloat(amount || '0') > allowedBaseAmount;
+    return effectivePackage.price;
+  }, [hasFullyPaidInvoice, outstandingBalanceAmount, effectivePackage, isManualMode]);
+  const amountExceedsAllowedAmount = isManualMode ? false : parseFloat(amount || '0') > allowedBaseAmount;
 
   React.useEffect(() => {
-    if (selectedStudent) {
+    if (selectedStudent && !isManualMode) {
       setAmount(allowedBaseAmount.toString());
     }
-  }, [selectedStudentId, allowedBaseAmount, selectedStudent]);
+  }, [selectedStudentId, allowedBaseAmount, selectedStudent, isManualMode]);
 
   const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
     useInvoiceCalculator({
       amount,
       discount,
       gstRate,
-      academyName: academy.name,
-      invoiceCount: currentYearInvoiceCount,
-      invoiceYear,
+      academyCode: academy.code,
+      invoiceCount: currentInvoiceCount,
     });
 
   const handlePrint = () => {
@@ -169,22 +210,32 @@ export default function CreateInvoice() {
   };
 
   const handleFinalizeInvoice = async () => {
-    if (!sport) {
+    if (!isManualMode && !sport) {
       toast.error('No sport available for invoice. Please create a sport first.');
       return;
     }
 
-    if (!selectedStudent || !studentPackage) {
+    if (isManualMode && (!manualCustomerName.trim() || !manualCustomerEmail.trim() || !manualCustomerPhone.trim())) {
+      toast.error('Name, email, and number are required for manual invoices.');
+      return;
+    }
+
+    if (!selectedStudentForWrite || !effectivePackage || !effectiveSport) {
       toast.error('Select a student and package before finalizing.');
       return;
     }
 
-    if (hasFullyPaidInvoice) {
+    if (isManualMode && parseFloat(amount || '0') <= 0) {
+      toast.error('Amount must be greater than 0.');
+      return;
+    }
+
+    if (!isManualMode && hasFullyPaidInvoice) {
       toast.error('This student has already paid for their package. The base amount is locked at ₹0.');
       return;
     }
 
-    if (amountExceedsAllowedAmount) {
+    if (!isManualMode && amountExceedsAllowedAmount) {
       toast.error(`Amount cannot exceed the available payable amount of ₹${allowedBaseAmount.toLocaleString()}.`);
       return;
     }
@@ -199,16 +250,16 @@ export default function CreateInvoice() {
 
     setIsSaving(true);
     if (!submitRequestKeyRef.current) {
-      submitRequestKeyRef.current = `inv:${selectedStudent.id}:${Date.now()}:${crypto.randomUUID()}`;
+      submitRequestKeyRef.current = `inv:${selectedStudentForWrite.id}:${Date.now()}:${crypto.randomUUID()}`;
     }
 
     try {
       const result = await finalizeInvoiceWrite({
-        studentId: selectedStudent.id,
-        packageId: studentPackage.id,
-        sportId: sport.id,
-        packageName: studentPackage.name,
-        sportName: sport.name,
+        studentId: selectedStudentForWrite.id,
+        packageId: effectivePackage.id,
+        sportId: effectiveSport.id,
+        packageName: isManualMode ? manualDescription.trim() || 'Manual invoice item' : effectivePackage.name,
+        sportName: isManualMode ? 'Manual Invoice' : effectiveSport.name,
         subtotal,
         discountTotal: discountAmount,
         taxableAmount,
@@ -217,9 +268,31 @@ export default function CreateInvoice() {
         gstPercent: parseFloat(gstRate),
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
-        preferredBranchId: selectedStudent.locationId,
+        preferredBranchId: selectedStudentForWrite.locationId,
         requestKey: submitRequestKeyRef.current,
       });
+
+      if (isManualMode && supabase) {
+        const manualNotes = serializeManualInvoiceNotes({
+          name: manualCustomerName.trim(),
+          email: manualCustomerEmail.trim(),
+          phone: manualCustomerPhone.trim(),
+          gst: manualCustomerGst.trim(),
+          pan: manualCustomerPan.trim(),
+        });
+
+        const { error: notesError } = await supabase
+          .from('invoices')
+          .update({ notes: manualNotes })
+          .eq('id', result.invoiceId);
+
+        if (notesError) {
+          reportOperationalError('invoice.manual_notes', 'Failed to save manual invoice bill-to details.', notesError, {
+            invoiceId: result.invoiceId,
+            invoiceNumber: result.invoiceNumber,
+          });
+        }
+      }
 
       setIsGenerated(true);
       setGeneratedInvoiceNumber(result.invoiceNumber);
@@ -237,8 +310,8 @@ export default function CreateInvoice() {
     } catch (err) {
       invoiceTab.close();
       reportOperationalError('invoice.finalize', 'Failed to finalize invoice.', err, {
-        studentId: selectedStudent.id,
-        packageId: studentPackage.id,
+        studentId: selectedStudentForWrite.id,
+        packageId: effectivePackage.id,
       });
       const message = err instanceof Error ? err.message : 'Failed to finalize invoice.';
       toast.error(message);
@@ -248,8 +321,12 @@ export default function CreateInvoice() {
     }
   };
 
+  const finalizeDisabled = isManualMode
+    ? isSaving || !selectedStudentForWrite || !manualCustomerName.trim() || !manualCustomerEmail.trim() || !manualCustomerPhone.trim() || parseFloat(amount || '0') <= 0
+    : isSaving || !selectedStudentForWrite || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0;
+
   return (
-    !sport ? (
+    !isManualMode && !sport ? (
       <div className="-mx-8 -my-8 flex-1 bg-white border rounded-2xl shadow-sm p-8 flex flex-col items-start justify-center gap-4">
         <h1 className="text-2xl font-display font-bold text-slate-900">Create Invoice</h1>
         <p className="text-slate-600 max-w-xl">
@@ -270,7 +347,7 @@ export default function CreateInvoice() {
           <div className="h-8 w-[1px] bg-gray-200"></div>
           <div>
             <h1 className="text-xl font-bold font-display text-gray-900 tracking-tight">Create Invoice</h1>
-            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{sport.name} Department • {branch?.name ?? 'No Branch'}</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">{activeSportName} • {branch?.name ?? 'No Branch'}</p>
           </div>
         </div>
         
@@ -287,8 +364,8 @@ export default function CreateInvoice() {
           <Button
             className="bg-kickstart-forest text-white gap-2 h-9 px-6 text-xs font-bold uppercase hover:bg-kickstart-forest/90"
             onClick={() => void handleFinalizeInvoice()}
-            disabled={isSaving || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0}
-            title={hasFullyPaidInvoice ? 'Student has already paid for this package' : amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
+            disabled={finalizeDisabled}
+            title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this package' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
           >
             {isSaving ? 'Saving...' : 'Finalize Invoice'}
           </Button>
@@ -298,57 +375,90 @@ export default function CreateInvoice() {
       <div className="flex-1 flex overflow-hidden text-gray-900">
         {/* Left Side: Student Selection & Info */}
         <div className="w-[400px] border-r bg-white overflow-y-auto p-6 space-y-8 print:hidden scrollbar-hide">
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-3">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Student Lookup</h2>
-              <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-[10px]">
-                {sport.name}
-              </Badge>
+          {isManualMode ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Manual Customer Details</h2>
+                <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-[10px]">
+                  MANUAL INVOICE
+                </Badge>
+              </div>
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Name</label>
+                  <Input value={manualCustomerName} onChange={(e) => { setManualCustomerName(e.target.value); setIsGenerated(false); }} placeholder="Customer full name" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Email</label>
+                  <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setIsGenerated(false); }} placeholder="customer@email.com" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Number</label>
+                  <Input value={manualCustomerPhone} onChange={(e) => { setManualCustomerPhone(e.target.value); setIsGenerated(false); }} placeholder="Phone number" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">GST</label>
+                  <Input value={manualCustomerGst} onChange={(e) => { setManualCustomerGst(e.target.value); setIsGenerated(false); }} placeholder="GST number" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">PAN</label>
+                  <Input value={manualCustomerPan} onChange={(e) => { setManualCustomerPan(e.target.value); setIsGenerated(false); }} placeholder="PAN number" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                </div>
+              </div>
             </div>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <Input 
-                placeholder="Search name or phone..." 
-                className="pl-10 h-11 border-gray-200 focus:ring-indigo-500"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-gray-400">Student Lookup</h2>
+                <Badge variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-200 uppercase text-[10px]">
+                  {activeSportName}
+                </Badge>
+              </div>
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <Input 
+                  placeholder="Search name or phone..." 
+                  className="pl-10 h-11 border-gray-200 focus:ring-indigo-500"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+              
+              <div className="grid gap-2">
+                {visibleStudents.map(student => (
+                  <button
+                    key={student.id}
+                    onClick={() => {
+                      setSelectedStudentId(student.id);
+                      setIsGenerated(false);
+                    }}
+                    className={cn(
+                      "flex items-center gap-3 p-3 rounded-xl border text-left transition-all group",
+                      selectedStudentId === student.id 
+                        ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100" 
+                        : "bg-white border-gray-100 hover:border-indigo-300 hover:bg-indigo-50/50 text-gray-900"
+                    )}
+                  >
+                    <div className={cn(
+                      "w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0",
+                      selectedStudentId === student.id ? "bg-white/20 text-white" : "bg-gray-100 text-gray-400 group-hover:bg-kickstart-lime/20 group-hover:text-kickstart-forest"
+                    )}>
+                      {student.name.split(' ').map(n => n[0]).join('')}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-bold text-sm truncate">{student.name}</p>
+                      <p className={cn("text-[10px] font-medium", selectedStudentId === student.id ? "text-kickstart-lime" : "text-gray-500")}>
+                        {student.phone}
+                      </p>
+                    </div>
+                    {invoices.some(inv => inv.studentId === student.id && inv.status !== 'cancelled') && (
+                      <span className={cn("text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0", selectedStudentId === student.id ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700")}>Paid</span>
+                    )}
+                  </button>
+                ))}
+              </div>
             </div>
-            
-            <div className="grid gap-2">
-              {visibleStudents.map(student => (
-                <button
-                  key={student.id}
-                  onClick={() => {
-                    setSelectedStudentId(student.id);
-                    setIsGenerated(false);
-                  }}
-                  className={cn(
-                    "flex items-center gap-3 p-3 rounded-xl border text-left transition-all group",
-                    selectedStudentId === student.id 
-                      ? "bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-100" 
-                      : "bg-white border-gray-100 hover:border-indigo-300 hover:bg-indigo-50/50 text-gray-900"
-                  )}
-                >
-                  <div className={cn(
-                    "w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0",
-                    selectedStudentId === student.id ? "bg-white/20 text-white" : "bg-gray-100 text-gray-400 group-hover:bg-kickstart-lime/20 group-hover:text-kickstart-forest"
-                  )}>
-                    {student.name.split(' ').map(n => n[0]).join('')}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-sm truncate">{student.name}</p>
-                    <p className={cn("text-[10px] font-medium", selectedStudentId === student.id ? "text-kickstart-lime" : "text-gray-500")}>
-                      {student.phone}
-                    </p>
-                  </div>
-                  {invoices.some(inv => inv.studentId === student.id && inv.status !== 'cancelled') && (
-                    <span className={cn("text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0", selectedStudentId === student.id ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700")}>Paid</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
+          )}
 
           <div className="h-[1px] bg-gray-100"></div>
 
@@ -376,18 +486,18 @@ export default function CreateInvoice() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">
-                    Base Amount (₹){selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
+                    Base Amount (₹){!isManualMode && selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
                   </label>
                   <Input 
                     type="number" 
                     value={amount}
-                    max={allowedBaseAmount}
-                    disabled={Boolean(selectedStudent) && allowedBaseAmount === 0}
+                    max={isManualMode ? undefined : allowedBaseAmount}
+                    disabled={!isManualMode && Boolean(selectedStudent) && allowedBaseAmount === 0}
                     onChange={(e) => {
                       const val = parseFloat(e.target.value);
-                      if (allowedBaseAmount === 0) {
+                      if (!isManualMode && allowedBaseAmount === 0) {
                         setAmount('0');
-                      } else if (!isNaN(val) && val > allowedBaseAmount) {
+                      } else if (!isManualMode && !isNaN(val) && val > allowedBaseAmount) {
                         setAmount(allowedBaseAmount.toString());
                       } else {
                         setAmount(e.target.value);
@@ -410,6 +520,21 @@ export default function CreateInvoice() {
                   />
                 </div>
               </div>
+
+              {isManualMode && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Manual Item Description</label>
+                  <Input
+                    value={manualDescription}
+                    onChange={(e) => {
+                      setManualDescription(e.target.value);
+                      setIsGenerated(false);
+                    }}
+                    placeholder="e.g. Summer camp fee"
+                    className="bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime"
+                  />
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
@@ -462,8 +587,8 @@ export default function CreateInvoice() {
               <Button 
                 className="w-full bg-kickstart-forest hover:bg-kickstart-forest/90 shadow-lg shadow-kickstart-forest/10 h-12 font-bold text-xs uppercase tracking-wider"
                 onClick={() => void handleFinalizeInvoice()}
-                disabled={isSaving || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0}
-                title={hasFullyPaidInvoice ? 'Student has already paid for this package' : amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
+                disabled={finalizeDisabled}
+                title={!isManualMode && hasFullyPaidInvoice ? 'Student has already paid for this package' : !isManualMode && amountExceedsAllowedAmount ? `Amount exceeds payable limit of ₹${allowedBaseAmount.toLocaleString()}` : undefined}
               >
                 {isSaving ? 'Saving...' : isGenerated ? 'Regenerate Invoice' : 'Generate Invoice'}
               </Button>
@@ -472,11 +597,11 @@ export default function CreateInvoice() {
 
           <div className="h-[1px] bg-gray-100 text-transparent"> - </div>
 
-          {selectedStudent && (
+          {!isManualMode && selectedStudent && (
             <div className="space-y-6 animate-in fade-in slide-in-from-left-2 duration-300">
               <div className="h-[1px] bg-gray-100"></div>
 
-              {hasFullyPaidInvoice ? (
+              {!isManualMode && hasFullyPaidInvoice ? (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
                   <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
                   <div>
@@ -484,7 +609,7 @@ export default function CreateInvoice() {
                     <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their package. The base amount is locked at zero.</p>
                   </div>
                 </div>
-              ) : outstandingBalanceAmount > 0 ? (
+              ) : !isManualMode && outstandingBalanceAmount > 0 ? (
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
                   <span className="text-emerald-500 mt-0.5 shrink-0">✓</span>
                   <div>
@@ -603,7 +728,18 @@ export default function CreateInvoice() {
                     <div className="w-1.5 h-1.5 rounded-full bg-kickstart-yellow" />
                     Bill To
                   </h3>
-                  {selectedStudent ? (
+                  {isManualMode ? (
+                    <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
+                      <div className="absolute top-0 right-0 w-24 h-24 bg-kickstart-lime/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
+                      <p className="text-lg font-bold text-gray-900 leading-tight">{manualCustomerName || '—'}</p>
+                      <p className="text-sm font-medium text-gray-500">{manualCustomerEmail || '—'}</p>
+                      <p className="text-sm font-medium text-gray-500">{manualCustomerPhone || '—'}</p>
+                      <div className="pt-2 space-y-1">
+                        <p className="text-xs text-gray-500">GST: {manualCustomerGst || '—'}</p>
+                        <p className="text-xs text-gray-500">PAN: {manualCustomerPan || '—'}</p>
+                      </div>
+                    </div>
+                  ) : selectedStudent ? (
                     <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-24 h-24 bg-kickstart-lime/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
                       <p className="text-lg font-bold text-gray-900 leading-tight">{selectedStudent.name}</p>
@@ -662,8 +798,8 @@ export default function CreateInvoice() {
                 
                 <div className="px-10 py-5 grid grid-cols-12 text-sm items-center border-b border-gray-50 hover:bg-gray-50/50 transition-colors rounded-xl">
                   <div className="col-span-6">
-                    <p className="font-bold text-gray-900 text-base tracking-tight">{studentPackage?.name || 'Select Package'}</p>
-                    <p className="text-xs text-gray-400 mt-2 font-medium">{sport.name} Training • {studentPackage?.durationMonths || 1} Month Access</p>
+                    <p className="font-bold text-gray-900 text-base tracking-tight">{isManualMode ? (manualDescription.trim() || 'Manual invoice item') : (effectivePackage?.name || 'Select Package')}</p>
+                    <p className="text-xs text-gray-400 mt-2 font-medium">{isManualMode ? 'Manual billing entry' : `${activeSportName} Training • ${effectivePackage?.durationMonths || 1} Month Access`}</p>
                   </div>
                   <div className="col-span-2 text-center font-bold text-gray-900 bg-gray-100 w-fit mx-auto px-3 py-1 rounded-lg">
                     01

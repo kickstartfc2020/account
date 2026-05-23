@@ -66,6 +66,11 @@ export interface Invoice {
   studentId: string;
   studentRefId?: string;
   studentName: string;
+  manualCustomerName?: string;
+  manualCustomerEmail?: string;
+  manualCustomerPhone?: string;
+  manualCustomerGst?: string;
+  manualCustomerPan?: string;
   amount: number;
   tax: number;
   total: number;
