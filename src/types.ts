@@ -73,6 +73,7 @@ export interface Invoice {
   studentId: string;
   studentRefId?: string;
   studentName: string;
+  studentEmail?: string;
   manualCustomerName?: string;
   manualCustomerEmail?: string;
   manualCustomerPhone?: string;
