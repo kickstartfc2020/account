@@ -3,6 +3,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate, StudentEnrollment } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
 import { reportOperationalError } from '@/lib/observability';
+import { parseManualInvoiceNotes } from '@/lib/manualInvoice';
 
 function computeStudentStatus(
   expiryDate: string | null | undefined,
@@ -86,7 +87,6 @@ export function useGstRates() {
     supabase
       .from('gst_rates')
       .select('id, name, percentage, is_default')
-      .is('archived_at', null)
       .order('is_default', { ascending: false })
       .order('percentage', { ascending: true })
       .then(({ data: rows, error }) => {
@@ -266,7 +266,7 @@ export function useInvoices() {
       supabase
         .from('invoices')
         .select(
-          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
+          'id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id), branches(name), payments(method, status), invoice_items(description)'
         )
         .is('archived_at', null)
         .order('invoice_date', { ascending: false })
@@ -283,12 +283,18 @@ export function useInvoices() {
                 const branch = inv.branches as { name: string } | null;
                 const payments = (inv.payments as Array<{ method: string; status: string }>) ?? [];
                 const items = (inv.invoice_items as Array<{ description: string }>) ?? [];
+                const manualBillTo = parseManualInvoiceNotes(inv.notes as string | null | undefined);
                 const completedPayment = payments.find((p) => p.status === 'completed');
                 return {
                   id: inv.invoice_number as string,
                   studentId: inv.student_id as string,
-                  studentRefId: student?.ref_id ?? undefined,
-                  studentName: student?.name ?? '',
+                  studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
+                  studentName: manualBillTo?.name ?? (student?.name ?? ''),
+                  manualCustomerName: manualBillTo?.name,
+                  manualCustomerEmail: manualBillTo?.email,
+                  manualCustomerPhone: manualBillTo?.phone,
+                  manualCustomerGst: manualBillTo?.gst,
+                  manualCustomerPan: manualBillTo?.pan,
                   amount: inv.subtotal as number,
                   tax: inv.tax_total as number,
                   total: inv.total_amount as number,
