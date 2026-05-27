@@ -356,7 +356,7 @@ export default function CreateInvoice() {
       if (!result.invoiceNumber) {
         throw new Error('Generated invoice number is missing. Please retry.');
       }
-      const invoiceUrl = `${window.location.origin}/invoices/view/${encodeURIComponent(result.invoiceNumber)}?generated=1&autosend=1`;
+      const invoiceUrl = `${window.location.origin}/invoices/view/${encodeURIComponent(result.invoiceNumber)}?generated=1`;
       if (!invoiceTab.closed) {
         invoiceTab.location.replace(invoiceUrl);
         invoiceTab.focus();
