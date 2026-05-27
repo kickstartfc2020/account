@@ -1,7 +1,7 @@
 export type ManualInvoiceBillTo = {
   name: string;
   email: string;
-  phone: string;
+  phone?: string;
   gst?: string;
   pan?: string;
 };
@@ -19,11 +19,14 @@ export function serializeManualInvoiceNotes(billTo: ManualInvoiceBillTo): string
   return JSON.stringify(payload);
 }
 
-export function parseManualInvoiceNotes(notes: string | null | undefined): ManualInvoiceBillTo | null {
+export function parseManualInvoiceNotes(notes: unknown): ManualInvoiceBillTo | null {
   if (!notes) return null;
 
   try {
-    const parsed = JSON.parse(notes) as Partial<ManualInvoiceNotesPayload>;
+    const parsed =
+      typeof notes === 'string'
+        ? (JSON.parse(notes) as Partial<ManualInvoiceNotesPayload>)
+        : (notes as Partial<ManualInvoiceNotesPayload>);
     if (parsed.kind !== 'manual_invoice_v1' || !parsed.billTo) {
       return null;
     }
@@ -34,14 +37,14 @@ export function parseManualInvoiceNotes(notes: string | null | undefined): Manua
     const gst = (parsed.billTo.gst ?? '').trim();
     const pan = (parsed.billTo.pan ?? '').trim();
 
-    if (!name || !email || !phone) {
+    if (!name || !email) {
       return null;
     }
 
     return {
       name,
       email,
-      phone,
+      phone: phone || undefined,
       gst,
       pan,
     };
