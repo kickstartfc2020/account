@@ -261,6 +261,8 @@ export function useInvoices() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
+    const storageEventName = 'app:invoices:changed';
+
     const loadInvoices = () => {
       setLoading(true);
       supabase
@@ -320,12 +322,27 @@ export function useInvoices() {
 
     loadInvoices();
 
-    const refreshEventName = 'app:invoices:changed';
     const refreshListener = () => loadInvoices();
-    window.addEventListener(refreshEventName, refreshListener);
+    const focusListener = () => loadInvoices();
+    const visibilityListener = () => {
+      if (document.visibilityState === 'visible') loadInvoices();
+    };
+    const storageListener = (event: StorageEvent) => {
+      if (event.key === storageEventName) {
+        loadInvoices();
+      }
+    };
+
+    window.addEventListener(storageEventName, refreshListener);
+    window.addEventListener('focus', focusListener);
+    document.addEventListener('visibilitychange', visibilityListener);
+    window.addEventListener('storage', storageListener);
 
     return () => {
-      window.removeEventListener(refreshEventName, refreshListener);
+      window.removeEventListener(storageEventName, refreshListener);
+      window.removeEventListener('focus', focusListener);
+      document.removeEventListener('visibilitychange', visibilityListener);
+      window.removeEventListener('storage', storageListener);
     };
   }, []);
 

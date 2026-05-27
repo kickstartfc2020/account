@@ -193,10 +193,10 @@ export default function CreateInvoice() {
   const amountExceedsAllowedAmount = isManualMode ? false : parseFloat(amount || '0') > allowedBaseAmount;
 
   React.useEffect(() => {
-    if (selectedStudent && !isManualMode) {
+    if (selectedStudent && !isManualMode && !isGenerated) {
       setAmount(allowedBaseAmount.toString());
     }
-  }, [selectedStudentId, allowedBaseAmount, selectedStudent, isManualMode]);
+  }, [selectedStudentId, allowedBaseAmount, selectedStudent, isManualMode, isGenerated]);
 
   const validManualItems = React.useMemo(() => {
     return manualItems
