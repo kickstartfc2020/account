@@ -140,6 +140,123 @@ export default function ViewInvoice() {
     };
   }, [id, invoice, isGeneratedMode]);
 
+  const invoiceStatus = isCancelledLocally ? 'cancelled' : (invoice?.status ?? 'unpaid');
+  const isCancelled = invoiceStatus === 'cancelled';
+  const billToName = invoice?.manualCustomerName || invoice?.studentName || '';
+  const billToEmailForSend = (invoice?.manualCustomerEmail || invoice?.studentEmail || '').trim();
+  const emailStatusBadgeClassName =
+    emailDeliveryStatus === 'sent'
+      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
+      : emailDeliveryStatus === 'sending'
+        ? 'bg-amber-50 text-amber-700 border-amber-100'
+        : emailDeliveryStatus === 'failed'
+          ? 'bg-red-50 text-red-700 border-red-100'
+          : 'bg-slate-100 text-slate-600 border-slate-200';
+  const emailStatusLabel =
+    emailDeliveryStatus === 'sent'
+      ? 'Sent'
+      : emailDeliveryStatus === 'sending'
+        ? 'Sending'
+        : emailDeliveryStatus === 'failed'
+          ? 'Failed'
+          : 'Not Sent';
+
+  React.useEffect(() => {
+    if (!invoice) return;
+
+    const storageKey = `invoice:auto-email:${invoice.id}`;
+    const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem(storageKey) : null;
+
+    if (stored === 'sent') {
+      setEmailDeliveryStatus('sent');
+      setEmailDeliveryMessage('Email delivered');
+      return;
+    }
+
+    if (stored === 'sending') {
+      setEmailDeliveryStatus('sending');
+      setEmailDeliveryMessage('Sending in progress');
+      return;
+    }
+
+    setEmailDeliveryStatus('not_sent');
+    setEmailDeliveryMessage('Not sent yet');
+  }, [invoice?.id]);
+
+  React.useEffect(() => {
+    if (!shouldAutoSendEmail || !invoice || !invoiceCardRef.current || isCancelled || !billToEmailForSend) {
+      return;
+    }
+
+    if (autoSendAttemptedRef.current) {
+      return;
+    }
+
+    const storageKey = `invoice:auto-email:${invoice.id}`;
+    if (typeof window !== 'undefined' && window.sessionStorage.getItem(storageKey) === 'sent') {
+      autoSendAttemptedRef.current = true;
+      return;
+    }
+
+    autoSendAttemptedRef.current = true;
+
+    const sendAutomatically = async () => {
+      try {
+        setEmailDeliveryStatus('sending');
+        setEmailDeliveryMessage(`Sending to ${billToEmailForSend}`);
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(storageKey, 'sending');
+        }
+
+        const fileName = `${invoice.id}.pdf`;
+        const pdfBlob = await buildInvoicePdfBlob({
+          element: invoiceCardRef.current as HTMLDivElement,
+          fileName,
+        });
+
+        await sendInvoiceEmail({
+          toEmail: billToEmailForSend,
+          toName: billToName,
+          invoiceNumber: invoice.id,
+          invoiceDate: invoice.date,
+          totalAmount: invoice.total,
+          branchName: invoice.locationName,
+          academyName: academy.name || 'Kickstart FC',
+          paymentMode: invoice.paymentMode,
+          status: invoiceStatus,
+          attachmentBlob: pdfBlob,
+          attachmentFileName: fileName,
+        });
+
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.setItem(storageKey, 'sent');
+        }
+
+        setEmailDeliveryStatus('sent');
+        setEmailDeliveryMessage(`Delivered to ${billToEmailForSend}`);
+        toast.success(`Invoice emailed to ${billToEmailForSend}`);
+      } catch (error) {
+        if (typeof window !== 'undefined') {
+          window.sessionStorage.removeItem(storageKey);
+        }
+        setEmailDeliveryStatus('failed');
+        setEmailDeliveryMessage(error instanceof Error ? error.message : 'Auto email send failed.');
+        const message = error instanceof Error ? error.message : 'Auto email send failed.';
+        toast.error(message);
+      }
+    };
+
+    void sendAutomatically();
+  }, [
+    shouldAutoSendEmail,
+    invoice,
+    isCancelled,
+    billToEmailForSend,
+    billToName,
+    academy.name,
+    invoiceStatus,
+  ]);
+
   if ((isGeneratedMode && !invoice) || (invoicesLoading && !invoice)) {
     return (
       <div className={isGeneratedMode ? 'flex-1 bg-gray-50 flex items-center justify-center p-8' : '-mx-8 -my-8 flex-1 bg-gray-50 flex items-center justify-center p-8 rounded-2xl overflow-hidden border shadow-sm'}>
@@ -180,58 +297,16 @@ export default function ViewInvoice() {
   const student = students.find(s => s.id === invoice.studentId);
   const location = locations.find(l => l.name === invoice.locationName) || locations[0];
   const isManualInvoice = Boolean(invoice.manualCustomerName);
-  const billToName = invoice.manualCustomerName || invoice.studentName;
   const billToSecondary = isManualInvoice
     ? (invoice.manualCustomerEmail || '—')
     : `Student ID: ${invoice.studentRefId || invoice.studentId}`;
   const billToTertiary = isManualInvoice
     ? (invoice.manualCustomerPhone || '—')
     : invoice.locationName;
-  const billToEmailForSend = (invoice.manualCustomerEmail || invoice.studentEmail || '').trim();
-  const invoiceStatus = isCancelledLocally ? 'cancelled' : invoice.status;
-  const isCancelled = invoiceStatus === 'cancelled';
   const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
   const displayItems = (invoice.invoiceItems && invoice.invoiceItems.length > 0)
     ? invoice.invoiceItems
     : [{ description: invoice.packageName || 'Invoice Item', quantity: 1, unitPrice: invoice.amount, lineTotal: invoice.amount }];
-  const emailStatusBadgeClassName =
-    emailDeliveryStatus === 'sent'
-      ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
-      : emailDeliveryStatus === 'sending'
-        ? 'bg-amber-50 text-amber-700 border-amber-100'
-        : emailDeliveryStatus === 'failed'
-          ? 'bg-red-50 text-red-700 border-red-100'
-          : 'bg-slate-100 text-slate-600 border-slate-200';
-  const emailStatusLabel =
-    emailDeliveryStatus === 'sent'
-      ? 'Sent'
-      : emailDeliveryStatus === 'sending'
-        ? 'Sending'
-        : emailDeliveryStatus === 'failed'
-          ? 'Failed'
-          : 'Not Sent';
-
-  React.useEffect(() => {
-    if (!invoice) return;
-
-    const storageKey = `invoice:auto-email:${invoice.id}`;
-    const stored = typeof window !== 'undefined' ? window.sessionStorage.getItem(storageKey) : null;
-
-    if (stored === 'sent') {
-      setEmailDeliveryStatus('sent');
-      setEmailDeliveryMessage('Email delivered');
-      return;
-    }
-
-    if (stored === 'sending') {
-      setEmailDeliveryStatus('sending');
-      setEmailDeliveryMessage('Sending in progress');
-      return;
-    }
-
-    setEmailDeliveryStatus('not_sent');
-    setEmailDeliveryMessage('Not sent yet');
-  }, [invoice?.id]);
 
   const handleCancelInvoice = async () => {
     if (isCancelled) {
@@ -375,80 +450,6 @@ export default function ViewInvoice() {
       toast.error(message);
     }
   };
-
-  React.useEffect(() => {
-    if (!shouldAutoSendEmail || !invoice || !invoiceCardRef.current || isCancelled || !billToEmailForSend) {
-      return;
-    }
-
-    if (autoSendAttemptedRef.current) {
-      return;
-    }
-
-    const storageKey = `invoice:auto-email:${invoice.id}`;
-    if (typeof window !== 'undefined' && window.sessionStorage.getItem(storageKey) === 'sent') {
-      autoSendAttemptedRef.current = true;
-      return;
-    }
-
-    autoSendAttemptedRef.current = true;
-
-    const sendAutomatically = async () => {
-      try {
-        setEmailDeliveryStatus('sending');
-        setEmailDeliveryMessage(`Sending to ${billToEmailForSend}`);
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.setItem(storageKey, 'sending');
-        }
-
-        const fileName = `${invoice.id}.pdf`;
-        const pdfBlob = await buildInvoicePdfBlob({
-          element: invoiceCardRef.current as HTMLDivElement,
-          fileName,
-        });
-
-        await sendInvoiceEmail({
-          toEmail: billToEmailForSend,
-          toName: billToName,
-          invoiceNumber: invoice.id,
-          invoiceDate: invoice.date,
-          totalAmount: invoice.total,
-          branchName: invoice.locationName,
-          academyName: academy.name || 'Kickstart FC',
-          paymentMode: invoice.paymentMode,
-          status: invoiceStatus,
-          attachmentBlob: pdfBlob,
-          attachmentFileName: fileName,
-        });
-
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.setItem(storageKey, 'sent');
-        }
-
-        setEmailDeliveryStatus('sent');
-        setEmailDeliveryMessage(`Delivered to ${billToEmailForSend}`);
-        toast.success(`Invoice emailed to ${billToEmailForSend}`);
-      } catch (error) {
-        if (typeof window !== 'undefined') {
-          window.sessionStorage.removeItem(storageKey);
-        }
-        setEmailDeliveryStatus('failed');
-        setEmailDeliveryMessage(error instanceof Error ? error.message : 'Auto email send failed.');
-        const message = error instanceof Error ? error.message : 'Auto email send failed.';
-        toast.error(message);
-      }
-    };
-
-    void sendAutomatically();
-  }, [
-    shouldAutoSendEmail,
-    invoice,
-    isCancelled,
-    billToEmailForSend,
-    billToName,
-    academy.name,
-    invoiceStatus,
-  ]);
 
   return (
     <div className={isGeneratedMode ? 'flex-1 bg-gray-50 flex flex-col' : '-mx-8 -my-8 flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm'}>

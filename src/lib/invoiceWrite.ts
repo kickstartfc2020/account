@@ -141,6 +141,12 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
 
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('app:invoices:changed'));
+    try {
+      window.localStorage.setItem('app:invoices:changed', String(Date.now()));
+    } catch {
+      // Ignore storage errors (private mode / disabled storage) because
+      // same-tab event dispatch above is still sufficient.
+    }
   }
 
   return {

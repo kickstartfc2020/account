@@ -32,10 +32,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Separator } from '@/components/ui/separator';
 import { formatDateDMY } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { downloadInvoicesExcelBackup } from '@/lib/invoiceReset';
+import { useSports } from '@/hooks/useData';
 
 export default function Invoices() {
   const pageSize = 10;
@@ -47,14 +49,31 @@ export default function Invoices() {
     };
 
   const { data: invoices = [] } = useInvoices();
+  const { data: sports = [], loading: sportsLoading } = useSports();
   const academy = useAcademyDetails();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = React.useState(searchParams.get('id') || '');
   const [invoicePage, setInvoicePage] = React.useState(1);
   const [isExportDialogOpen, setIsExportDialogOpen] = React.useState(false);
+  const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const [exportStartDate, setExportStartDate] = React.useState('');
   const [exportEndDate, setExportEndDate] = React.useState('');
+
+  const handleCreateInvoiceClick = () => {
+    if (sportsLoading) return;
+    setIsSportDialogOpen(true);
+  };
+
+  const selectSport = (sportId: string) => {
+    setIsSportDialogOpen(false);
+    navigate(`/invoices/create?sportId=${sportId}`);
+  };
+
+  const selectManualInvoice = () => {
+    setIsSportDialogOpen(false);
+    navigate('/invoices/create?mode=manual');
+  };
 
   const toDateKey = React.useCallback((value: string) => {
     const directMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -171,12 +190,46 @@ export default function Invoices() {
             <Download className="w-4 h-4" />
             Export Data
           </Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => navigate('/invoices/create')}>
+          <Button className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={handleCreateInvoiceClick} disabled={sportsLoading}>
             <Plus className="w-4 h-4" />
-            Create Invoice
+            {sportsLoading ? 'Loading...' : 'Create Invoice'}
           </Button>
         </div>
       </div>
+
+      <Dialog open={isSportDialogOpen} onOpenChange={setIsSportDialogOpen}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Select Sport</DialogTitle>
+            <DialogDescription>
+              Choose a sport or continue with manual invoice creation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3 py-2">
+            {sports.map((sport) => (
+              <Button
+                key={sport.id}
+                variant="outline"
+                className="h-12 justify-between px-4"
+                onClick={() => selectSport(sport.id)}
+              >
+                <span className="font-bold text-gray-700">{sport.name}</span>
+              </Button>
+            ))}
+            {sports.length === 0 && (
+              <p className="text-sm text-slate-500 py-1">No sports configured. You can still create a manual invoice.</p>
+            )}
+            <Separator className="my-1" />
+            <Button
+              variant="secondary"
+              className="h-12 justify-between px-4"
+              onClick={selectManualInvoice}
+            >
+              <span className="font-bold">Manual Invoice</span>
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
         <DialogContent>
