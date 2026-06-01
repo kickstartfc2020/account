@@ -1,9 +1,14 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, Download, Eye, Receipt, Search } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Download, Eye, Receipt, Search } from 'lucide-react';
 import { useInvoices } from '@/hooks/useData';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
-import { downloadInvoicesExcelBackup } from '@/lib/invoiceReset';
+import {
+  downloadInvoicesExcelBackup,
+  getFinancialYearResetPreview,
+  resetFinancialYearForOrganization,
+  type FinancialYearResetPreview,
+} from '@/lib/invoiceReset';
 import { formatDateDMY } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -26,11 +31,13 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useAuth } from '@/auth/AuthProvider';
 
 const PAGE_SIZE = 20;
 
 export default function InvoicesOverview() {
   const navigate = useNavigate();
+  const { role } = useAuth();
   const academy = useAcademyDetails();
   const { data: invoices = [] } = useInvoices();
 
@@ -39,6 +46,12 @@ export default function InvoicesOverview() {
   const [isExportDialogOpen, setIsExportDialogOpen] = React.useState(false);
   const [exportStartDate, setExportStartDate] = React.useState('');
   const [exportEndDate, setExportEndDate] = React.useState('');
+  const [isResettingInvoices, setIsResettingInvoices] = React.useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = React.useState(false);
+  const [isResetPreviewLoading, setIsResetPreviewLoading] = React.useState(false);
+  const [resetPreview, setResetPreview] = React.useState<FinancialYearResetPreview | null>(null);
+  const [resetConfirmationText, setResetConfirmationText] = React.useState('');
+  const [resetStep, setResetStep] = React.useState<1 | 2>(1);
 
   const toDateKey = React.useCallback((value: string) => {
     const directMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -125,6 +138,55 @@ export default function InvoicesOverview() {
     setIsExportDialogOpen(false);
   };
 
+  const loadResetPreview = React.useCallback(async () => {
+    setIsResetPreviewLoading(true);
+    try {
+      const preview = await getFinancialYearResetPreview(null);
+      setResetPreview(preview);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load financial year impact preview.');
+      setResetPreview(null);
+    } finally {
+      setIsResetPreviewLoading(false);
+    }
+  }, []);
+
+  const openResetDialog = async () => {
+    if (role !== 'super_admin') {
+      toast.error('Only super admins can reset financial year records.');
+      return;
+    }
+    setResetConfirmationText('');
+    setResetStep(1);
+    setIsResetDialogOpen(true);
+    await loadResetPreview();
+  };
+
+  const handleBackupAndResetAllInvoices = async () => {
+    if (role !== 'super_admin') {
+      toast.error('Only super admins can reset financial year records.');
+      return;
+    }
+    if (resetConfirmationText.trim() !== 'RESET') {
+      toast.error('Type RESET exactly to continue.');
+      return;
+    }
+
+    setIsResettingInvoices(true);
+    try {
+      const result = await resetFinancialYearForOrganization(null, 'RESET');
+      toast.success(`Global financial year reset complete. ${result.invoices_deleted} invoices and ${result.renewals_deleted} renewals were removed.`);
+      setIsResetDialogOpen(false);
+      setResetStep(1);
+      setResetConfirmationText('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to reset financial year data.');
+    } finally {
+      setIsResettingInvoices(false);
+      await loadResetPreview();
+    }
+  };
+
   const summaryCards = React.useMemo(() => {
     const activeInvoices = invoices.filter((invoice) => invoice.status !== 'cancelled');
     const totalAmount = activeInvoices.reduce((acc, invoice) => acc + invoice.total, 0);
@@ -146,10 +208,15 @@ export default function InvoicesOverview() {
           <h1 className="text-3xl font-display font-bold text-gray-900 tracking-tight">Invoices</h1>
           <p className="text-gray-500 mt-1">See all invoices across branches in one place.</p>
         </div>
-        <Button variant="outline" className="gap-2" onClick={openExportDialog}>
-          <Download className="w-4 h-4" />
-          Download Excel
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="gap-2" onClick={openExportDialog}>
+            <Download className="w-4 h-4" />
+            Download Excel
+          </Button>
+          <Button variant="destructive" className="gap-2" onClick={() => void openResetDialog()} disabled={isResettingInvoices || role !== 'super_admin'}>
+            {isResettingInvoices ? 'Resetting...' : 'Financial Year Reset'}
+          </Button>
+        </div>
       </div>
 
       <Dialog open={isExportDialogOpen} onOpenChange={setIsExportDialogOpen}>
@@ -187,6 +254,80 @@ export default function InvoicesOverview() {
               Cancel
             </Button>
             <Button onClick={handleExportData}>Export Excel</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={isResetDialogOpen} onOpenChange={(open) => {
+        if (isResettingInvoices) return;
+        setIsResetDialogOpen(open);
+        if (!open) {
+          setResetStep(1);
+          setResetConfirmationText('');
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-700">
+              <AlertTriangle className="h-5 w-5" />
+              Global Financial Year Reset
+            </DialogTitle>
+            <DialogDescription>
+              This permanently deletes current financial-year accounting records across all organizations. A database backup snapshot and audit trail entry are created before deletion.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-1">
+            <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+              Warning: This operation cannot be undone.
+            </div>
+
+            {isResetPreviewLoading ? (
+              <p className="text-sm text-slate-500">Loading live impact preview...</p>
+            ) : resetPreview ? (
+              <div className="space-y-2 text-sm text-slate-700">
+                <p><strong>Financial year:</strong> {resetPreview.financial_year} ({resetPreview.fy_start} to {resetPreview.fy_end})</p>
+                <p><strong>Invoices:</strong> {resetPreview.invoices_count}</p>
+                <p><strong>Invoice Items:</strong> {resetPreview.invoice_items_count}</p>
+                <p><strong>Payments:</strong> {resetPreview.payments_count}</p>
+                <p><strong>Renewals:</strong> {resetPreview.renewals_count}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-red-600">Impact preview is unavailable. Please retry.</p>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase text-slate-500">Type RESET to continue</label>
+              <Input
+                value={resetConfirmationText}
+                onChange={(event) => setResetConfirmationText(event.target.value)}
+                placeholder="RESET"
+                disabled={isResettingInvoices}
+              />
+            </div>
+
+            {resetStep === 2 && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                Final confirmation: Are you absolutely sure you want to delete this financial year data now?
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsResetDialogOpen(false)} disabled={isResettingInvoices}>Cancel</Button>
+            {resetStep === 1 ? (
+              <Button
+                variant="destructive"
+                onClick={() => setResetStep(2)}
+                disabled={isResetPreviewLoading || !resetPreview || resetConfirmationText.trim() !== 'RESET' || isResettingInvoices}
+              >
+                Continue to Final Confirmation
+              </Button>
+            ) : (
+              <Button variant="destructive" onClick={() => void handleBackupAndResetAllInvoices()} disabled={isResettingInvoices || resetConfirmationText.trim() !== 'RESET'}>
+                {isResettingInvoices ? 'Resetting...' : 'Delete Financial Year Data'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -309,7 +450,7 @@ export default function InvoicesOverview() {
           <div>
             <p className="text-sm font-bold">Super Admin Invoice Visibility</p>
             <p className="text-xs text-indigo-100 mt-1">
-              This view combines invoices from all branches and lets you download them in Excel format anytime.
+              This view combines invoices from all branches and allows super admin-only backup and global reset when a fresh start is required.
             </p>
           </div>
         </CardContent>

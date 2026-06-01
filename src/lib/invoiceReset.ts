@@ -75,13 +75,60 @@ export function downloadInvoicesExcelBackup(invoices: Invoice[], organizationNam
   triggerDownload(html, fileName, 'application/vnd.ms-excel');
 }
 
-export async function resetInvoicesForOrganization(organizationId: string) {
+export type FinancialYearResetPreview = {
+  financial_year: string;
+  fy_start: string;
+  fy_end: string;
+  invoices_count: number;
+  invoice_items_count: number;
+  payments_count: number;
+  renewals_count: number;
+};
+
+export type FinancialYearResetResult = {
+  financial_year: string;
+  invoices_deleted: number;
+  invoice_items_deleted: number;
+  payments_deleted: number;
+  renewals_deleted: number;
+  backup_id: number;
+  audit_log_id: number;
+};
+
+export async function getFinancialYearResetPreview(organizationId?: string | null) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured.');
   }
 
-  const { data, error } = await (supabase as any).rpc('admin_reset_invoices', {
-    p_organization_id: organizationId,
+  const { data, error } = await (supabase as any).rpc('get_financial_year_reset_preview', {
+    p_organization_id: organizationId ?? null,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as FinancialYearResetPreview | undefined;
+  if (!row) {
+    throw new Error('Failed to load financial year reset preview.');
+  }
+
+  return row;
+}
+
+export async function resetFinancialYearForOrganization(
+  organizationId?: string | null,
+  confirmationText = 'RESET',
+  ipAddress?: string | null,
+) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const { data, error } = await (supabase as any).rpc('admin_reset_financial_year', {
+    p_organization_id: organizationId ?? null,
+    p_confirmation_text: confirmationText,
+    p_ip_address: ipAddress ?? null,
   });
 
   if (error) {
@@ -92,5 +139,10 @@ export async function resetInvoicesForOrganization(organizationId: string) {
     window.dispatchEvent(new Event('app:invoices:changed'));
   }
 
-  return data as Array<{ deleted_invoices: number; deleted_payments: number; deleted_items: number }>;
+  const row = (Array.isArray(data) ? data[0] : data) as FinancialYearResetResult | undefined;
+  if (!row) {
+    throw new Error('Failed to reset financial year data.');
+  }
+
+  return row;
 }

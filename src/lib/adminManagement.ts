@@ -1,4 +1,5 @@
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
+import { resolveBranchImagesUrl } from '@/lib/storageAsset';
 
 type BranchInsertInput = {
   name: string;
@@ -290,19 +291,18 @@ export async function uploadBranchImage(branchId: string, file: File) {
     throw uploadError;
   }
 
-  const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
-  const imageUrl = data.publicUrl;
+  const signedUrl = await resolveBranchImagesUrl(path);
 
   const branchesTable = supabase.from('branches') as any;
   const { error: updateError } = await branchesTable
-    .update({ image: imageUrl })
+    .update({ image: path })
     .eq('id', branchId);
 
   if (updateError) {
     throw updateError;
   }
 
-  return imageUrl;
+  return signedUrl ?? path;
 }
 
 export async function rollbackBranchCreation(branchId: string) {
@@ -361,7 +361,7 @@ export async function getOrganizationDetails() {
     return null;
   }
 
-  return data as {
+  const organization = data as {
     id: string;
     name: string;
     code: string;
@@ -373,6 +373,17 @@ export async function getOrganizationDetails() {
     phone: string | null;
     email: string | null;
     address: string | null;
+  };
+
+  const [logoUrl, upiQrUrl] = await Promise.all([
+    resolveBranchImagesUrl(organization.logo_url),
+    resolveBranchImagesUrl(organization.upi_qr_url),
+  ]);
+
+  return {
+    ...organization,
+    logo_url: logoUrl ?? organization.logo_url,
+    upi_qr_url: upiQrUrl ?? organization.upi_qr_url,
   };
 }
 
@@ -410,6 +421,7 @@ export async function uploadOrganizationLogo(file: File) {
   const path = buildOrganizationAssetPath('organization-logo', organizationId, file);
 
   let logoUrl: string;
+  let persistedValue: string;
 
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
@@ -421,14 +433,15 @@ export async function uploadOrganizationLogo(file: File) {
     }
 
     logoUrl = await fileToDataUrl(file);
+    persistedValue = logoUrl;
   } else {
-    const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
-    logoUrl = data.publicUrl;
+    persistedValue = path;
+    logoUrl = (await resolveBranchImagesUrl(path)) ?? path;
   }
 
   const organizationsTable = supabase.from('organizations') as any;
   const { error: updateError } = await organizationsTable
-    .update({ logo_url: logoUrl })
+    .update({ logo_url: persistedValue })
     .eq('id', organizationId);
 
   if (updateError) {
@@ -447,6 +460,7 @@ export async function uploadOrganizationQrCode(file: File) {
   const path = buildOrganizationAssetPath('organization-qr', organizationId, file);
 
   let qrUrl: string;
+  let persistedValue: string;
 
   const { error: uploadError } = await supabase.storage
     .from('branch-images')
@@ -458,14 +472,15 @@ export async function uploadOrganizationQrCode(file: File) {
     }
 
     qrUrl = await fileToDataUrl(file);
+    persistedValue = qrUrl;
   } else {
-    const { data } = supabase.storage.from('branch-images').getPublicUrl(path);
-    qrUrl = data.publicUrl;
+    persistedValue = path;
+    qrUrl = (await resolveBranchImagesUrl(path)) ?? path;
   }
 
   const organizationsTable = supabase.from('organizations') as any;
   const { error: updateError } = await organizationsTable
-    .update({ upi_qr_url: qrUrl })
+    .update({ upi_qr_url: persistedValue })
     .eq('id', organizationId);
 
   if (updateError) {
@@ -473,4 +488,20 @@ export async function uploadOrganizationQrCode(file: File) {
   }
 
   return qrUrl;
+}
+
+export async function clearOrganizationQrCode() {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const organizationId = await resolveOrganizationId();
+  const organizationsTable = supabase.from('organizations') as any;
+  const { error } = await organizationsTable
+    .update({ upi_qr_url: null })
+    .eq('id', organizationId);
+
+  if (error) {
+    throw error;
+  }
 }

@@ -18,11 +18,13 @@ import {
   Trash2,
   Pencil,
   Check,
+  AlertTriangle,
 } from 'lucide-react';
 import { useLocations, useInvoices } from '@/hooks/useData';
 import { Badge } from '@/components/ui/badge';
 import { toast } from 'sonner';
 import {
+  clearOrganizationQrCode,
   getOrganizationDetails,
   updateOrganizationDetails,
   uploadOrganizationLogo,
@@ -33,9 +35,18 @@ import type { GSTRate } from '@/types';
 import { reportOperationalError } from '@/lib/observability';
 import { useAuth } from '@/auth/AuthProvider';
 import {
-  downloadInvoicesExcelBackup,
-  resetInvoicesForOrganization,
+  getFinancialYearResetPreview,
+  resetFinancialYearForOrganization,
+  type FinancialYearResetPreview,
 } from '@/lib/invoiceReset';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export default function Settings() {
   const { role } = useAuth();
@@ -61,6 +72,11 @@ export default function Settings() {
   const [isUploadingLogo, setIsUploadingLogo] = React.useState(false);
   const [isUploadingQr, setIsUploadingQr] = React.useState(false);
   const [isResettingInvoices, setIsResettingInvoices] = React.useState(false);
+  const [isResetDialogOpen, setIsResetDialogOpen] = React.useState(false);
+  const [isResetPreviewLoading, setIsResetPreviewLoading] = React.useState(false);
+  const [resetPreview, setResetPreview] = React.useState<FinancialYearResetPreview | null>(null);
+  const [resetConfirmationText, setResetConfirmationText] = React.useState('');
+  const [resetStep, setResetStep] = React.useState<1 | 2>(1);
 
   const logoInputRef = React.useRef<HTMLInputElement | null>(null);
   const qrInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -76,8 +92,10 @@ export default function Settings() {
   const [editGstPercentage, setEditGstPercentage] = React.useState('');
   const [editGstDefault, setEditGstDefault] = React.useState(false);
 
+  const canEditOrganizationSettings = role === 'super_admin' || role === 'organization_admin';
   const canEditPaymentConfig = role === 'super_admin' || role === 'organization_admin';
-  const canResetInvoices = role === 'super_admin' || role === 'organization_admin';
+  const canManageGstSettings = role === 'super_admin' || role === 'organization_admin';
+  const canResetInvoices = role === 'super_admin';
 
   React.useEffect(() => {
     let isMounted = true;
@@ -142,6 +160,11 @@ export default function Settings() {
   };
 
   const handleSaveOrganization = async () => {
+    if (!canEditOrganizationSettings) {
+      toast.error('Only organization admins or super admins can modify organization settings.');
+      return;
+    }
+
     const nextErrors: { name?: string; code?: string } = {};
     if (!organization.name.trim()) nextErrors.name = 'Academy name is required.';
     if (!organization.code.trim()) nextErrors.code = 'Registration ID is required.';
@@ -178,6 +201,10 @@ export default function Settings() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!canEditOrganizationSettings) {
+      toast.error('Only organization admins or super admins can modify organization branding.');
+      return;
+    }
     if (!file.type.startsWith('image/')) { toast.error('Please upload an image file.'); return; }
     if (file.size > 5 * 1024 * 1024) { toast.error('Logo size should be under 5MB.'); return; }
     setIsUploadingLogo(true);
@@ -194,6 +221,10 @@ export default function Settings() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    if (!canEditPaymentConfig) {
+      toast.error('Only administrators can update payment configuration.');
+      return;
+    }
     if (!file.type.startsWith('image/')) { toast.error('Please upload an image file.'); return; }
     if (file.size > 5 * 1024 * 1024) { toast.error('QR size should be under 5MB.'); return; }
     setIsUploadingQr(true);
@@ -206,7 +237,29 @@ export default function Settings() {
     } finally { setIsUploadingQr(false); }
   };
 
+  const handleClearQrCode = async () => {
+    if (!canEditPaymentConfig) {
+      toast.error('Only administrators can update payment configuration.');
+      return;
+    }
+
+    setIsUploadingQr(true);
+    try {
+      await clearOrganizationQrCode();
+      setOrganization((prev) => ({ ...prev, upiQrUrl: '' }));
+      toast.success('UPI QR code removed.');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to remove UPI QR code.');
+    } finally {
+      setIsUploadingQr(false);
+    }
+  };
+
   const setDefaultGstRate = async (targetId: string) => {
+    if (!canManageGstSettings) {
+      toast.error('Only organization admins or super admins can modify GST settings.');
+      return;
+    }
     if (!isSupabaseConfigured || !supabase || !organizationId) return;
     setIsSavingGst(true);
     try {
@@ -223,6 +276,10 @@ export default function Settings() {
   };
 
   const handleAddGstRate = async () => {
+    if (!canManageGstSettings) {
+      toast.error('Only organization admins or super admins can modify GST settings.');
+      return;
+    }
     if (!isSupabaseConfigured || !supabase || !organizationId) return;
     const percentage = Number(newGstPercentage);
     const name = newGstName.trim();
@@ -255,6 +312,10 @@ export default function Settings() {
   };
 
   const handleUpdateGstRate = async () => {
+    if (!canManageGstSettings) {
+      toast.error('Only organization admins or super admins can modify GST settings.');
+      return;
+    }
     if (!isSupabaseConfigured || !supabase || !organizationId || !editingGstId) return;
     const percentage = Number(editGstPercentage);
     const name = editGstName.trim();
@@ -280,6 +341,10 @@ export default function Settings() {
   };
 
   const handleDeleteGstRate = async (rate: GSTRate) => {
+    if (!canManageGstSettings) {
+      toast.error('Only organization admins or super admins can modify GST settings.');
+      return;
+    }
     if (!isSupabaseConfigured || !supabase || !organizationId) return;
     const activeRates = gstRates.filter((item) => item.id !== rate.id);
     if (activeRates.length === 0) { toast.error('At least one GST rate must remain active.'); return; }
@@ -302,21 +367,49 @@ export default function Settings() {
     } finally { setIsSavingGst(false); }
   };
 
-  const handleBackupAndResetInvoices = async () => {
-    if (!canResetInvoices) { toast.error('Only administrators can reset invoices.'); return; }
+  const loadResetPreview = React.useCallback(async () => {
+    if (!organizationId) return;
+    setIsResetPreviewLoading(true);
+    try {
+      const preview = await getFinancialYearResetPreview(organizationId);
+      setResetPreview(preview);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to load financial year impact preview.');
+      setResetPreview(null);
+    } finally {
+      setIsResetPreviewLoading(false);
+    }
+  }, [organizationId]);
+
+  const handleOpenResetDialog = async () => {
+    if (!canResetInvoices) { toast.error('Only super admins can reset invoices.'); return; }
     if (!organizationId) { toast.error('Organization is not ready yet.'); return; }
-    if (invoicesLoading) { toast.info('Invoices are still loading. Please try again in a moment.'); return; }
-    if (!window.confirm('This will download an Excel backup first. Continue?')) return;
-    downloadInvoicesExcelBackup(invoices, organization.name || 'Invoices');
-    if (!window.confirm('Backup download started. Delete all invoices and reset numbering to 01? This cannot be undone.')) return;
+    setResetConfirmationText('');
+    setResetStep(1);
+    setIsResetDialogOpen(true);
+    await loadResetPreview();
+  };
+
+  const handleConfirmFinancialYearReset = async () => {
+    if (!canResetInvoices) { toast.error('Only super admins can reset invoices.'); return; }
+    if (!organizationId) { toast.error('Organization is not ready yet.'); return; }
+    if (resetConfirmationText.trim() !== 'RESET') {
+      toast.error('Type RESET exactly to continue.');
+      return;
+    }
     setIsResettingInvoices(true);
     try {
-      const result = await resetInvoicesForOrganization(organizationId);
-      const deletedCount = result?.[0]?.deleted_invoices ?? 0;
-      toast.success(`Invoice reset complete. ${deletedCount} invoices were removed and numbering restarted.`);
+      const result = await resetFinancialYearForOrganization(organizationId, 'RESET');
+      toast.success(`Financial year reset complete. ${result.invoices_deleted} invoices and ${result.renewals_deleted} renewals were removed.`);
+      setIsResetDialogOpen(false);
+      setResetStep(1);
+      setResetConfirmationText('');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to reset invoices.');
-    } finally { setIsResettingInvoices(false); }
+      toast.error(error instanceof Error ? error.message : 'Failed to reset financial year data.');
+    } finally {
+      setIsResettingInvoices(false);
+      await loadResetPreview();
+    }
   };
 
   return (
@@ -365,7 +458,7 @@ export default function Settings() {
                     </div>
                     <div className="space-y-2">
                       <input ref={logoInputRef} type="file" accept="image/*" className="hidden" onChange={handleLogoFileChange} />
-                      <Button variant="outline" className="gap-2 h-9 text-xs" onClick={() => logoInputRef.current?.click()} disabled={isUploadingLogo}>
+                      <Button variant="outline" className="gap-2 h-9 text-xs" onClick={() => logoInputRef.current?.click()} disabled={isUploadingLogo || !canEditOrganizationSettings}>
                         <ImageIcon className="w-4 h-4" />
                         {isUploadingLogo ? 'Uploading...' : 'Change Logo'}
                       </Button>
@@ -376,35 +469,35 @@ export default function Settings() {
                   <div className="grid grid-cols-2 gap-6">
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Academy Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
-                      <Input value={organization.name} onChange={(e) => onOrgFieldChange('name', e.target.value)} className={orgFieldErrors.name ? 'border-red-400 focus-visible:ring-red-400' : ''} />
+                      <Input value={organization.name} onChange={(e) => onOrgFieldChange('name', e.target.value)} disabled={!canEditOrganizationSettings} className={orgFieldErrors.name ? 'border-red-400 focus-visible:ring-red-400' : ''} />
                       {orgFieldErrors.name && <p className="text-[11px] text-red-500">{orgFieldErrors.name}</p>}
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Registration ID <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
-                      <Input value={organization.code} onChange={(e) => onOrgFieldChange('code', e.target.value)} className={orgFieldErrors.code ? 'border-red-400 focus-visible:ring-red-400' : ''} />
+                      <Input value={organization.code} onChange={(e) => onOrgFieldChange('code', e.target.value)} disabled={!canEditOrganizationSettings} className={orgFieldErrors.code ? 'border-red-400 focus-visible:ring-red-400' : ''} />
                       {orgFieldErrors.code && <p className="text-[11px] text-red-500">{orgFieldErrors.code}</p>}
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">GST Number</label>
-                      <Input value={organization.gstNumber} onChange={(e) => onOrgFieldChange('gstNumber', e.target.value)} placeholder="e.g. 29ABCDE1234F1Z5" />
+                      <Input value={organization.gstNumber} onChange={(e) => onOrgFieldChange('gstNumber', e.target.value)} disabled={!canEditOrganizationSettings} placeholder="e.g. 29ABCDE1234F1Z5" />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">PAN Number</label>
-                      <Input value={organization.panNumber} onChange={(e) => onOrgFieldChange('panNumber', e.target.value)} placeholder="e.g. ABCDE1234F" />
+                      <Input value={organization.panNumber} onChange={(e) => onOrgFieldChange('panNumber', e.target.value)} disabled={!canEditOrganizationSettings} placeholder="e.g. ABCDE1234F" />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Phone</label>
-                      <Input value={organization.phone} onChange={(e) => onOrgFieldChange('phone', e.target.value)} placeholder="e.g. +91 9876543210" />
+                      <Input value={organization.phone} onChange={(e) => onOrgFieldChange('phone', e.target.value)} disabled={!canEditOrganizationSettings} placeholder="e.g. +91 9876543210" />
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Email</label>
-                      <Input value={organization.email} onChange={(e) => onOrgFieldChange('email', e.target.value)} placeholder="e.g. billing@academy.com" />
+                      <Input value={organization.email} onChange={(e) => onOrgFieldChange('email', e.target.value)} disabled={!canEditOrganizationSettings} placeholder="e.g. billing@academy.com" />
                     </div>
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Headquarters Address</label>
-                    <Input value={organization.address} onChange={(e) => onOrgFieldChange('address', e.target.value)} placeholder="Enter full address" />
+                    <Input value={organization.address} onChange={(e) => onOrgFieldChange('address', e.target.value)} disabled={!canEditOrganizationSettings} placeholder="Enter full address" />
                   </div>
 
                   <div className="pt-4 border-t border-gray-100 space-y-4">
@@ -424,10 +517,16 @@ export default function Settings() {
                         <div className="flex flex-wrap items-center gap-3">
                           <input ref={qrInputRef} type="file" accept="image/*" className="hidden" onChange={handleQrFileChange} />
                           <Button type="button" variant="outline" className="h-11" onClick={() => qrInputRef.current?.click()} disabled={!canEditPaymentConfig || isUploadingQr}>
-                            {isUploadingQr ? 'Uploading...' : 'Upload QR Image'}
+                            {isUploadingQr ? 'Processing...' : organization.upiQrUrl ? 'Replace QR Image' : 'Upload QR Image'}
                           </Button>
+                          {organization.upiQrUrl && (
+                            <Button type="button" variant="outline" className="h-11 text-red-600 hover:text-red-700" onClick={() => void handleClearQrCode()} disabled={!canEditPaymentConfig || isUploadingQr}>
+                              Remove QR
+                            </Button>
+                          )}
                           {organization.upiQrUrl && <span className="text-xs text-slate-500">Saved</span>}
                         </div>
+                        <p className="text-[10px] text-slate-400">Accepted formats: JPG, PNG, WEBP. Max size: 5MB.</p>
                       </div>
                     </div>
                     {organization.upiQrUrl && (
@@ -443,7 +542,7 @@ export default function Settings() {
 
                   <div className="pt-4 border-t flex items-center justify-between">
                     <p className="text-xs text-slate-500">Organization profile values are stored in database and used in invoice templates.</p>
-                    <Button onClick={() => void handleSaveOrganization()} disabled={isSaving} className="bg-indigo-600 hover:bg-indigo-700">
+                    <Button onClick={() => void handleSaveOrganization()} disabled={isSaving || !canEditOrganizationSettings} className="bg-indigo-600 hover:bg-indigo-700">
                       {isSaving ? 'Saving...' : 'Save Changes'}
                     </Button>
                   </div>
@@ -472,7 +571,7 @@ export default function Settings() {
               <Card className="glass-card">
                 <CardHeader className="flex flex-row justify-between items-center">
                   <CardTitle className="text-lg font-display font-bold">GST Configuration</CardTitle>
-                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => setNewGstDefault(false)}>
+                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700 gap-2" onClick={() => setNewGstDefault(false)} disabled={!canManageGstSettings}>
                     <Plus className="w-4 h-4" />
                     Add GST Rate
                   </Button>
@@ -480,27 +579,27 @@ export default function Settings() {
                 <CardContent className="space-y-6">
                   <p className="text-sm text-slate-500">Add, edit, delete, and set default GST rates for invoice generation.</p>
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3 p-4 border rounded-2xl bg-slate-50/50">
-                    <Input placeholder="Rate name (e.g. Standard GST)" value={newGstName} onChange={(e) => setNewGstName(e.target.value)} />
-                    <Input type="number" min="0" max="100" step="0.01" placeholder="Percentage" value={newGstPercentage} onChange={(e) => setNewGstPercentage(e.target.value)} />
+                    <Input placeholder="Rate name (e.g. Standard GST)" value={newGstName} onChange={(e) => setNewGstName(e.target.value)} disabled={!canManageGstSettings} />
+                    <Input type="number" min="0" max="100" step="0.01" placeholder="Percentage" value={newGstPercentage} onChange={(e) => setNewGstPercentage(e.target.value)} disabled={!canManageGstSettings} />
                     <label className="flex items-center gap-2 text-sm text-slate-600">
-                      <input type="checkbox" checked={newGstDefault} onChange={(e) => setNewGstDefault(e.target.checked)} />
+                      <input type="checkbox" checked={newGstDefault} onChange={(e) => setNewGstDefault(e.target.checked)} disabled={!canManageGstSettings} />
                       Set as default
                     </label>
-                    <Button onClick={() => void handleAddGstRate()} disabled={isSavingGst} className="bg-indigo-600 hover:bg-indigo-700">Add</Button>
+                    <Button onClick={() => void handleAddGstRate()} disabled={isSavingGst || !canManageGstSettings} className="bg-indigo-600 hover:bg-indigo-700">Add</Button>
                   </div>
                   <div className="space-y-3">
                     {gstRates.map((rate) => (
                       <div key={rate.id} className="group p-4 bg-white border border-slate-100 rounded-2xl flex items-center justify-between hover:border-indigo-200 hover:shadow-sm transition-all">
                         {editingGstId === rate.id ? (
                           <div className="w-full grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
-                            <Input value={editGstName} onChange={(e) => setEditGstName(e.target.value)} />
-                            <Input type="number" min="0" max="100" step="0.01" value={editGstPercentage} onChange={(e) => setEditGstPercentage(e.target.value)} />
+                            <Input value={editGstName} onChange={(e) => setEditGstName(e.target.value)} disabled={!canManageGstSettings} />
+                            <Input type="number" min="0" max="100" step="0.01" value={editGstPercentage} onChange={(e) => setEditGstPercentage(e.target.value)} disabled={!canManageGstSettings} />
                             <label className="flex items-center gap-2 text-sm text-slate-600">
-                              <input type="checkbox" checked={editGstDefault} onChange={(e) => setEditGstDefault(e.target.checked)} />
+                              <input type="checkbox" checked={editGstDefault} onChange={(e) => setEditGstDefault(e.target.checked)} disabled={!canManageGstSettings} />
                               Default
                             </label>
                             <div className="flex gap-2">
-                              <Button size="sm" onClick={() => void handleUpdateGstRate()} disabled={isSavingGst} className="bg-indigo-600 hover:bg-indigo-700">Save</Button>
+                              <Button size="sm" onClick={() => void handleUpdateGstRate()} disabled={isSavingGst || !canManageGstSettings} className="bg-indigo-600 hover:bg-indigo-700">Save</Button>
                               <Button size="sm" variant="outline" onClick={() => setEditingGstId(null)}>Cancel</Button>
                             </div>
                           </div>
@@ -522,15 +621,15 @@ export default function Settings() {
                             </div>
                             <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
                               {!rate.isDefault && (
-                                <Button size="sm" variant="outline" onClick={() => void setDefaultGstRate(rate.id)} disabled={isSavingGst}>
+                                <Button size="sm" variant="outline" onClick={() => void setDefaultGstRate(rate.id)} disabled={isSavingGst || !canManageGstSettings}>
                                   <Check className="w-4 h-4 mr-1" />
                                   Default
                                 </Button>
                               )}
-                              <Button size="sm" variant="outline" onClick={() => beginEditGst(rate)}>
+                              <Button size="sm" variant="outline" onClick={() => beginEditGst(rate)} disabled={!canManageGstSettings}>
                                 <Pencil className="w-4 h-4" />
                               </Button>
-                              <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => void handleDeleteGstRate(rate)} disabled={isSavingGst}>
+                              <Button size="sm" variant="outline" className="text-red-600 hover:text-red-700" onClick={() => void handleDeleteGstRate(rate)} disabled={isSavingGst || !canManageGstSettings}>
                                 <Trash2 className="w-4 h-4" />
                               </Button>
                             </div>
@@ -558,20 +657,94 @@ export default function Settings() {
               {canResetInvoices && (
                 <Card className="glass-card border-red-100">
                   <CardHeader>
-                    <CardTitle className="text-lg font-display font-bold text-slate-900">Invoice Year Reset</CardTitle>
+                    <CardTitle className="text-lg font-display font-bold text-slate-900">Financial Year Reset</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <div className="p-4 bg-red-50 rounded-2xl border border-red-100 space-y-2">
-                      <p className="font-bold text-red-700">Backup first, then reset invoices</p>
-                      <p className="text-sm text-red-600/80">Downloads an Excel backup of all invoices, removes invoice records from the database, and restarts numbering from 01.</p>
-                      <p className="text-xs text-red-500/90">Current invoice count: {invoices.length}</p>
+                      <p className="font-bold text-red-700">Restricted destructive workflow</p>
+                      <p className="text-sm text-red-600/80">Removes current financial-year invoices, invoice items, payments, and related renewal history after a typed RESET and final confirmation.</p>
+                      <p className="text-xs text-red-500/90">Only super admins can execute this action.</p>
                     </div>
-                    <Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700" onClick={() => void handleBackupAndResetInvoices()} disabled={isResettingInvoices || invoicesLoading}>
-                      {isResettingInvoices ? 'Resetting Invoices...' : 'Download Backup & Reset Invoices'}
+                    <Button variant="destructive" className="w-full bg-red-600 hover:bg-red-700" onClick={() => void handleOpenResetDialog()} disabled={isResettingInvoices || invoicesLoading}>
+                      {isResettingInvoices ? 'Resetting Financial Year...' : 'Open Financial Year Reset'}
                     </Button>
                   </CardContent>
                 </Card>
               )}
+
+              <Dialog open={isResetDialogOpen} onOpenChange={(open) => {
+                if (isResettingInvoices) return;
+                setIsResetDialogOpen(open);
+                if (!open) {
+                  setResetStep(1);
+                  setResetConfirmationText('');
+                }
+              }}>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle className="flex items-center gap-2 text-red-700">
+                      <AlertTriangle className="h-5 w-5" />
+                      Financial Year Reset
+                    </DialogTitle>
+                    <DialogDescription>
+                      This action permanently deletes current financial-year accounting records. A database backup snapshot and audit log entry will be created before deletion.
+                    </DialogDescription>
+                  </DialogHeader>
+
+                  <div className="space-y-4 py-1">
+                    <div className="rounded-xl border border-red-100 bg-red-50 p-3 text-sm text-red-700">
+                      Warning: This operation cannot be undone.
+                    </div>
+
+                    {isResetPreviewLoading ? (
+                      <p className="text-sm text-slate-500">Loading live impact preview...</p>
+                    ) : resetPreview ? (
+                      <div className="space-y-2 text-sm text-slate-700">
+                        <p><strong>Financial year:</strong> {resetPreview.financial_year} ({resetPreview.fy_start} to {resetPreview.fy_end})</p>
+                        <p><strong>Invoices:</strong> {resetPreview.invoices_count}</p>
+                        <p><strong>Invoice Items:</strong> {resetPreview.invoice_items_count}</p>
+                        <p><strong>Payments:</strong> {resetPreview.payments_count}</p>
+                        <p><strong>Renewals:</strong> {resetPreview.renewals_count}</p>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-red-600">Impact preview is unavailable. Please retry.</p>
+                    )}
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-bold uppercase tracking-wider text-slate-500">Type RESET to continue</label>
+                      <Input
+                        value={resetConfirmationText}
+                        onChange={(event) => setResetConfirmationText(event.target.value)}
+                        placeholder="RESET"
+                        disabled={isResettingInvoices}
+                      />
+                    </div>
+
+                    {resetStep === 2 && (
+                      <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                        Final confirmation: Are you absolutely sure you want to delete this financial year data now?
+                      </div>
+                    )}
+                  </div>
+
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setIsResetDialogOpen(false)} disabled={isResettingInvoices}>Cancel</Button>
+                    {resetStep === 1 ? (
+                      <Button
+                        variant="destructive"
+                        onClick={() => setResetStep(2)}
+                        disabled={isResetPreviewLoading || !resetPreview || resetConfirmationText.trim() !== 'RESET' || isResettingInvoices}
+                      >
+                        Continue to Final Confirmation
+                      </Button>
+                    ) : (
+                      <Button variant="destructive" onClick={() => void handleConfirmFinancialYearReset()} disabled={isResettingInvoices || resetConfirmationText.trim() !== 'RESET'}>
+                        {isResettingInvoices ? 'Resetting...' : 'Delete Financial Year Data'}
+                      </Button>
+                    )}
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
             </div>
           )}
 

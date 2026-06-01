@@ -6,7 +6,8 @@ import {
   Download, 
   Mail, 
   ReceiptText,
-  XCircle
+  XCircle,
+  House
 } from 'lucide-react';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { useInvoices, useStudents, useLocations } from '@/hooks/useData';
@@ -757,6 +758,10 @@ export default function ViewInvoice() {
                 {emailStatusLabel}
               </Badge>
             </div>
+            <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase transition-all hover:bg-slate-100 border-slate-200" onClick={() => navigate('/')}>
+              <House className="w-3.5 h-3.5" />
+              Home
+            </Button>
             <Button variant="outline" size="sm" className="gap-2 text-xs font-bold uppercase border-indigo-100 text-indigo-600 hover:bg-indigo-50" onClick={handleShare} disabled={isCancelled}>
               <Mail className="w-3.5 h-3.5" />
               Share Email
