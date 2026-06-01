@@ -24,6 +24,7 @@ import {
 export function Header() {
   const { data: locations } = useLocations();
   const { data: sports, loading: sportsLoading } = useSports();
+  const activeSports = React.useMemo(() => sports.filter((sport) => sport.status === 'active'), [sports]);
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const navigate = useNavigate();
@@ -79,6 +80,8 @@ export function Header() {
            <img 
             src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop" 
             alt="Profile"
+            width={32}
+            height={32}
             referrerPolicy="no-referrer"
           />
         </div>
@@ -93,7 +96,7 @@ export function Header() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-4">
-            {sports.map((sport) => (
+            {activeSports.map((sport) => (
               <Button 
                 key={sport.id} 
                 variant="outline" 
@@ -104,7 +107,7 @@ export function Header() {
                 <ChevronDown className="w-4 h-4 -rotate-90 text-gray-400 group-hover:text-indigo-500" />
               </Button>
             ))}
-            {sports.length === 0 && (
+            {activeSports.length === 0 && (
               <p className="text-sm text-slate-500 py-2">No sports configured. You can still create a manual invoice.</p>
             )}
             <Separator className="my-1" />

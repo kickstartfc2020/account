@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { resolveBranchImagesUrl } from '@/lib/storageAsset';
 import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate, StudentEnrollment } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
 import { reportOperationalError } from '@/lib/observability';
@@ -41,21 +42,22 @@ export function useLocations() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
+    let active = true;
     setLoading(true);
     supabase
       .from('branches')
         .select('id, ref_id, name, address, phone, email, image, status')
       .neq('status', 'archived')
       .order('name')
-      .then(({ data: rows, error }) => {
+      .then(async ({ data: rows, error }) => {
         setLoading(false);
         if (error) {
           reportOperationalError('query.branches', 'Failed to load branches.', error);
           return;
         }
         const r = (rows ?? []) as any[];
-        setData(
-          r.map((b) => ({
+        const mapped = await Promise.all(
+          r.map(async (b) => ({
             id: b.id as string,
             refId: (b.ref_id ?? '') as string,
             name: b.name as string,
@@ -65,11 +67,18 @@ export function useLocations() {
             studentsCount: 0,
             activeSports: [],
             revenue: 0,
-            image: (b.image ?? undefined) as string | undefined,
+            image: (await resolveBranchImagesUrl((b.image ?? null) as string | null)) ?? undefined,
             region: undefined,
           }))
         );
+
+        if (!active) return;
+        setData(mapped);
       });
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   return { data, loading };

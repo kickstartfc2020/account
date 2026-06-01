@@ -213,47 +213,20 @@ export async function addStudentEnrollment(input: {
 }) {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
-  const organizationId = await resolveOrganizationId();
-  const branchId = await resolveBranchId(input.branchId);
-
-  const studentsTable = supabase.from('students') as any;
-  const { error: studentError } = await studentsTable
-    .update({ current_package_id: input.packageId })
-    .eq('id', input.studentId)
-    .eq('organization_id', organizationId);
-
-  if (studentError) throw studentError;
-
-  // Fetch package to determine duration for cycle_end
-  const pkgsTable = supabase.from('packages') as any;
-  const { data: pkg } = await pkgsTable
-    .select('duration_months')
-    .eq('id', input.packageId)
-    .single();
-
-  const durationMonths: number = (pkg as any)?.duration_months ?? 1;
-  const startDate = input.startDate ? new Date(input.startDate) : new Date();
-  const cycleEnd = new Date(startDate);
-  cycleEnd.setMonth(cycleEnd.getMonth() + durationMonths);
-
-  const renewalsTable = supabase.from('renewals') as any;
-  const { error: renewalError } = await renewalsTable.insert({
-    student_id: input.studentId,
-    package_id: input.packageId,
-    organization_id: organizationId,
-    branch_id: branchId,
-    status: 'pending',
-    cycle_end: cycleEnd.toISOString().split('T')[0],
-    due_date: cycleEnd.toISOString().split('T')[0],
+  const rpcStartDate = input.startDate ?? new Date().toISOString().slice(0, 10);
+  const { data, error } = await (supabase as any).rpc('add_student_enrollment_atomic', {
+    p_student_id: input.studentId,
+    p_package_id: input.packageId,
+    p_branch_id: input.branchId ?? null,
+    p_start_date: rpcStartDate,
   });
 
-  if (renewalError) {
-    const errorCode = (renewalError as { code?: string }).code;
-    if (errorCode !== '42501') throw renewalError;
-  }
+  if (error) throw error;
+
+  const row = Array.isArray(data) ? data[0] : data;
 
   return {
-    packageId: input.packageId,
+    packageId: ((row as { package_id?: string } | null)?.package_id ?? input.packageId),
   };
 }
 

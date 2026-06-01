@@ -1,21 +1,26 @@
 import React from 'react';
 import { 
   Building2, 
-  Settings, 
-  MapPin, 
   Globe, 
   Phone, 
   Mail,
   Camera,
   Save,
-  Info
+  Info,
+  Image as ImageIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { getOrganizationDetails, updateOrganizationDetails, uploadOrganizationLogo } from '@/lib/adminManagement';
+import {
+  clearOrganizationQrCode,
+  getOrganizationDetails,
+  updateOrganizationDetails,
+  uploadOrganizationLogo,
+  uploadOrganizationQrCode,
+} from '@/lib/adminManagement';
 import { toast } from 'sonner';
 import { reportOperationalError } from '@/lib/observability';
 
@@ -29,10 +34,14 @@ export default function ClubDetails() {
     email: '',
     phone: '',
     logoUrl: '',
+    upiId: '',
+    upiQrUrl: '',
   });
   const [isSaving, setIsSaving] = React.useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = React.useState(false);
+  const [isUploadingQr, setIsUploadingQr] = React.useState(false);
   const logoInputRef = React.useRef<HTMLInputElement | null>(null);
+  const qrInputRef = React.useRef<HTMLInputElement | null>(null);
 
   React.useEffect(() => {
     let isMounted = true;
@@ -48,6 +57,8 @@ export default function ClubDetails() {
           email: org.email ?? '',
           phone: org.phone ?? '',
           logoUrl: org.logo_url ?? '',
+          upiId: org.upi_id ?? '',
+          upiQrUrl: org.upi_qr_url ?? '',
         });
       })
       .catch((error) => {
@@ -74,6 +85,7 @@ export default function ClubDetails() {
         panNumber: organization.panNumber.trim(),
         email: organization.email.trim(),
         phone: organization.phone.trim(),
+        upiId: organization.upiId.trim(),
       });
       toast.success('Organization details updated.');
     } catch (error) {
@@ -99,6 +111,43 @@ export default function ClubDetails() {
       toast.error(message);
     } finally {
       setIsUploadingLogo(false);
+    }
+  };
+
+  const handleQrUpload = async (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please upload an image file.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('QR size should be under 5MB.');
+      return;
+    }
+
+    setIsUploadingQr(true);
+    try {
+      const upiQrUrl = await uploadOrganizationQrCode(file);
+      setOrganization((prev) => ({ ...prev, upiQrUrl }));
+      toast.success('UPI QR code updated.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to upload UPI QR code.';
+      toast.error(message);
+    } finally {
+      setIsUploadingQr(false);
+    }
+  };
+
+  const handleClearQr = async () => {
+    setIsUploadingQr(true);
+    try {
+      await clearOrganizationQrCode();
+      setOrganization((prev) => ({ ...prev, upiQrUrl: '' }));
+      toast.success('UPI QR code removed.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to remove UPI QR code.';
+      toast.error(message);
+    } finally {
+      setIsUploadingQr(false);
     }
   };
 
@@ -162,13 +211,46 @@ export default function ClubDetails() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">UPI ID for QR Code</Label>
-                    <Input defaultValue="kickstart@upi" className="h-11 border-indigo-50 focus:ring-indigo-500" />
+                    <Input value={organization.upiId} onChange={(e) => onFieldChange('upiId', e.target.value)} className="h-11 border-indigo-50 focus:ring-indigo-500" placeholder="kickstart@upi" />
                   </div>
                   <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">Merchant Name (Optional)</Label>
-                    <Input defaultValue="Kickstart Academy Mysore" className="h-11 border-indigo-50 focus:ring-indigo-500" />
+                    <Label className="text-xs font-bold uppercase text-gray-500 tracking-wider">UPI QR Code Image</Label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button type="button" variant="outline" className="h-11 gap-2" onClick={() => qrInputRef.current?.click()} disabled={isUploadingQr}>
+                        <ImageIcon className="w-4 h-4" />
+                        {isUploadingQr ? 'Processing...' : organization.upiQrUrl ? 'Replace QR Image' : 'Upload QR Image'}
+                      </Button>
+                      {organization.upiQrUrl && (
+                        <Button type="button" variant="outline" className="h-11 text-red-600 hover:text-red-700" onClick={() => void handleClearQr()} disabled={isUploadingQr}>
+                          Remove QR
+                        </Button>
+                      )}
+                    </div>
+                    <input
+                      ref={qrInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          void handleQrUpload(file);
+                        }
+                        e.target.value = '';
+                      }}
+                    />
+                    <p className="text-[10px] text-gray-400">Accepted formats: JPG, PNG, WEBP. Max 5MB.</p>
                   </div>
                 </div>
+                {organization.upiQrUrl && (
+                  <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4 flex items-center gap-4">
+                    <img src={organization.upiQrUrl} alt="UPI QR code" width={80} height={80} className="h-20 w-20 rounded-xl object-cover bg-white border border-indigo-100" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-bold uppercase tracking-widest text-indigo-700">Current QR Code</p>
+                      <p className="text-sm text-slate-600">Used across invoices where UPI payment details are shown.</p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-4">

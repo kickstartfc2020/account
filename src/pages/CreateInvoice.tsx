@@ -22,6 +22,14 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { 
   Select, 
   SelectContent, 
@@ -34,6 +42,7 @@ import { formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
+import { createPackage, createSport, createStudent } from '@/lib/dataMutations';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { serializeManualInvoiceNotes } from '@/lib/manualInvoice';
@@ -58,8 +67,9 @@ export default function CreateInvoice() {
   const navigate = useNavigate();
   const isManualMode = searchParams.get('mode') === 'manual';
   const sportId = searchParams.get('sportId');
-  const sportFromQuery = sports.find((s) => s.id === sportId) ?? null;
-  const sport = isManualMode ? null : (sportFromQuery ?? sports[0] ?? null);
+  const activeSports = React.useMemo(() => sports.filter((s) => s.status === 'active'), [sports]);
+  const sportFromQuery = activeSports.find((s) => s.id === sportId) ?? null;
+  const sport = isManualMode ? null : (sportFromQuery ?? activeSports[0] ?? null);
   const activeSportId = isManualMode ? '' : (sport?.id ?? '');
   const activeSportName = isManualMode ? 'Manual Invoice' : (sport?.name ?? 'No Sport');
   
@@ -76,6 +86,7 @@ export default function CreateInvoice() {
   const [isGenerated, setIsGenerated] = React.useState(false);
   const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
+  const [isQrPaymentDialogOpen, setIsQrPaymentDialogOpen] = React.useState(false);
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
@@ -93,6 +104,9 @@ export default function CreateInvoice() {
     manualItems?: string;
   }>({});
   const submitRequestKeyRef = React.useRef<string | null>(null);
+  const requestKeyStorageKey = isManualMode
+    ? 'invoice:create:manual:request-key'
+    : 'invoice:create:sport:request-key';
 
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
@@ -106,21 +120,10 @@ export default function CreateInvoice() {
   }, [defaultGstRatePercentage]);
 
   React.useEffect(() => {
-    submitRequestKeyRef.current = null;
-  }, [
-    selectedStudentId,
-    amount,
-    discount,
-    gstRate,
-    paymentMode,
-    activeSportId,
-    manualCustomerName,
-    manualCustomerEmail,
-    manualCustomerPhone,
-    manualCustomerGst,
-    manualCustomerPan,
-    manualItems,
-  ]);
+    if (typeof window === 'undefined') return;
+    const persisted = window.sessionStorage.getItem(requestKeyStorageKey);
+    submitRequestKeyRef.current = persisted && persisted.trim() ? persisted : null;
+  }, [requestKeyStorageKey]);
   
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
   const selectedStudentForWrite = isManualMode ? (selectedStudent ?? students[0] ?? null) : selectedStudent;
@@ -244,7 +247,7 @@ export default function CreateInvoice() {
     return 'upi';
   };
 
-  const handleFinalizeInvoice = async () => {
+  const handleFinalizeInvoice = async (skipPaymentDialog = false) => {
     if (!isManualMode && !sport) {
       toast.error('No sport available for invoice. Please create a sport first.');
       return;
@@ -271,8 +274,143 @@ export default function CreateInvoice() {
       return;
     }
 
-    if (!selectedStudentForWrite || !effectivePackage || !effectiveSport) {
-      toast.error('Select a student and batch before finalizing.');
+    let packageForWrite = effectivePackage;
+    let sportForWrite = effectiveSport;
+
+    if (isManualMode) {
+      try {
+        if (!supabase) {
+          throw new Error('Supabase is not configured.');
+        }
+
+        // Always use an active dedicated manual sport.
+        let manualSport = null as { id: string; name: string; status: string; archived_at: string | null } | null;
+        {
+          const { data } = await (supabase.from('sports') as any)
+            .select('id, name, status, archived_at')
+            .eq('name', 'Manual Invoices')
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          manualSport = (data ?? null) as { id: string; name: string; status: string; archived_at: string | null } | null;
+        }
+
+        if (!manualSport) {
+          const createdSport = await createSport({ name: 'Manual Invoices' });
+          manualSport = {
+            id: createdSport.id,
+            name: createdSport.name,
+            status: 'active',
+            archived_at: null,
+          };
+        } else if (manualSport.status !== 'active' || manualSport.archived_at) {
+          const { error: reactivateSportError } = await (supabase.from('sports') as any)
+            .update({ status: 'active', archived_at: null })
+            .eq('id', manualSport.id);
+          if (reactivateSportError) throw reactivateSportError;
+          manualSport.status = 'active';
+          manualSport.archived_at = null;
+        }
+
+        sportForWrite = {
+          id: manualSport.id,
+          name: manualSport.name,
+        } as typeof effectiveSport;
+
+        // Always use an active dedicated manual package bound to the manual sport.
+        let manualPackage = null as { id: string; name: string; sport_id: string; status: string; archived_at: string | null } | null;
+        {
+          const { data } = await (supabase.from('packages') as any)
+            .select('id, name, sport_id, status, archived_at')
+            .eq('name', 'Manual Billing Package')
+            .eq('sport_id', sportForWrite.id)
+            .order('created_at', { ascending: true })
+            .limit(1)
+            .maybeSingle();
+          manualPackage = (data ?? null) as { id: string; name: string; sport_id: string; status: string; archived_at: string | null } | null;
+        }
+
+        if (!manualPackage) {
+          const createdPackage = await createPackage({
+            sportId: sportForWrite.id,
+            name: 'Manual Billing Package',
+            billingType: 'one-time',
+            durationMonths: 1,
+            amount: 0,
+            gstPercent: parseFloat(gstRate) || 18,
+          });
+          manualPackage = {
+            id: createdPackage.id,
+            name: 'Manual Billing Package',
+            sport_id: sportForWrite.id,
+            status: 'active',
+            archived_at: null,
+          };
+        } else if (manualPackage.status !== 'active' || manualPackage.archived_at) {
+          const { error: reactivatePackageError } = await (supabase.from('packages') as any)
+            .update({ status: 'active', archived_at: null })
+            .eq('id', manualPackage.id);
+          if (reactivatePackageError) throw reactivatePackageError;
+          manualPackage.status = 'active';
+          manualPackage.archived_at = null;
+        }
+
+        packageForWrite = {
+          id: manualPackage.id,
+          name: manualPackage.name,
+          sportId: manualPackage.sport_id,
+        } as typeof effectivePackage;
+
+        if (!effectiveSport || !effectivePackage) {
+          toast.success('Initialized default manual sport and batch.');
+        }
+      } catch (error) {
+        const message = error instanceof Error
+          ? error.message
+          : (typeof error === 'object' && error !== null && 'message' in error)
+            ? String((error as { message?: unknown }).message)
+            : 'Failed to initialize manual batch context.';
+        toast.error(message);
+        return;
+      }
+    }
+
+    if (!packageForWrite || !sportForWrite) {
+      toast.error('Select a batch before finalizing.');
+      return;
+    }
+
+    let studentForWrite = selectedStudentForWrite;
+    if (!studentForWrite && isManualMode) {
+      const branchForManualInvoice = currentBranchId ?? locations[0]?.id ?? null;
+      if (!branchForManualInvoice) {
+        toast.error('No branch found for manual invoice generation.');
+        return;
+      }
+
+      try {
+        const createdStudent = await createStudent({
+          name: manualCustomerName.trim() || 'Walk-in Customer',
+          phone: manualCustomerPhone.trim() || `90000${Date.now().toString().slice(-5)}`,
+          email: manualCustomerEmail.trim(),
+          sportId: sportForWrite.id,
+          packageId: packageForWrite.id,
+          branchId: branchForManualInvoice,
+        });
+
+        setSelectedStudentId(createdStudent.id);
+        studentForWrite = {
+          id: createdStudent.id,
+          locationId: createdStudent.branch_id,
+        } as typeof selectedStudent;
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : 'Failed to initialize manual customer.');
+        return;
+      }
+    }
+
+    if (!studentForWrite) {
+      toast.error('Select a student before finalizing.');
       return;
     }
 
@@ -295,6 +433,13 @@ export default function CreateInvoice() {
       return;
     }
 
+    if (!skipPaymentDialog) {
+      setIsQrPaymentDialogOpen(true);
+      return;
+    }
+
+    setIsQrPaymentDialogOpen(false);
+
     // Open app route synchronously from user click to avoid popup blockers and blank-tab fallbacks.
     const preparingUrl = `${window.location.origin}/invoices/view/pending?generated=1&creating=1`;
     const invoiceTab = window.open(preparingUrl, '_blank');
@@ -305,16 +450,19 @@ export default function CreateInvoice() {
 
     setIsSaving(true);
     if (!submitRequestKeyRef.current) {
-      submitRequestKeyRef.current = `inv:${selectedStudentForWrite.id}:${Date.now()}:${crypto.randomUUID()}`;
+      submitRequestKeyRef.current = `inv:${studentForWrite.id}:${Date.now()}:${crypto.randomUUID()}`;
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.setItem(requestKeyStorageKey, submitRequestKeyRef.current);
+      }
     }
 
     try {
       const result = await finalizeInvoiceWrite({
-        studentId: selectedStudentForWrite.id,
-        packageId: effectivePackage.id,
-        sportId: effectiveSport.id,
-        packageName: isManualMode ? validManualItems[0]?.description || 'Manual invoice item' : effectivePackage.name,
-        sportName: isManualMode ? 'Manual Invoice' : effectiveSport.name,
+        studentId: studentForWrite.id,
+        packageId: packageForWrite.id,
+        sportId: sportForWrite.id,
+        packageName: isManualMode ? validManualItems[0]?.description || 'Manual invoice item' : packageForWrite.name,
+        sportName: isManualMode ? 'Manual Invoice' : sportForWrite.name,
         subtotal,
         discountTotal: discountAmount,
         taxableAmount,
@@ -324,7 +472,7 @@ export default function CreateInvoice() {
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
         manualItems: isManualMode ? validManualItems : undefined,
-        preferredBranchId: selectedStudentForWrite.locationId,
+        preferredBranchId: studentForWrite.locationId,
         requestKey: submitRequestKeyRef.current,
       });
 
@@ -352,6 +500,10 @@ export default function CreateInvoice() {
 
       setIsGenerated(true);
       setGeneratedInvoiceNumber(result.invoiceNumber);
+      submitRequestKeyRef.current = null;
+      if (typeof window !== 'undefined') {
+        window.sessionStorage.removeItem(requestKeyStorageKey);
+      }
       toast.success('Invoice finalized and payment recorded.');
       if (!result.invoiceNumber) {
         throw new Error('Generated invoice number is missing. Please retry.');
@@ -366,19 +518,18 @@ export default function CreateInvoice() {
     } catch (err) {
       invoiceTab.close();
       reportOperationalError('invoice.finalize', 'Failed to finalize invoice.', err, {
-        studentId: selectedStudentForWrite.id,
-        packageId: effectivePackage.id,
+        studentId: studentForWrite.id,
+        packageId: packageForWrite.id,
       });
       const message = err instanceof Error ? err.message : 'Failed to finalize invoice.';
       toast.error(message);
-      submitRequestKeyRef.current = null;
     } finally {
       setIsSaving(false);
     }
   };
 
   const finalizeDisabled = isManualMode
-    ? isSaving || !selectedStudentForWrite || !manualCustomerName.trim() || !manualCustomerEmail.trim() || manualSubtotal <= 0
+    ? isSaving || !manualCustomerName.trim() || !manualCustomerEmail.trim() || manualSubtotal <= 0
     : isSaving || !selectedStudentForWrite || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0;
 
   return (
@@ -393,6 +544,7 @@ export default function CreateInvoice() {
         </Button>
       </div>
     ) : (
+    <>
     <div className="-mx-8 -my-8 flex-1 bg-gray-50 flex flex-col rounded-2xl overflow-hidden border shadow-sm">
       {/* Header */}
       <div className="bg-white border-b px-8 py-4 flex items-center justify-between sticky top-0 z-10 print:hidden">
@@ -519,23 +671,6 @@ export default function CreateInvoice() {
           )}
 
           <div className="h-[1px] bg-gray-100"></div>
-
-          {/* UPI QR Code Display (Visible when QR mode selected) */}
-          {paymentMode === 'QR' && (
-            <div className="space-y-4 animate-in fade-in slide-in-from-top-4 duration-500">
-              <h2 className="text-sm font-bold uppercase tracking-widest text-kickstart-forest">Payment QR Code</h2>
-              <div className="p-6 bg-white rounded-3xl border-2 border-kickstart-lime/20 shadow-sm flex flex-col items-center gap-4 text-center group transition-all hover:bg-kickstart-lime/5">
-                <div className="p-3 bg-white rounded-2xl shadow-inner border border-gray-50 relative group-hover:scale-105 transition-transform">
-                  <div className="w-32 h-32 rounded-lg bg-gray-50 border border-gray-100" aria-label="UPI QR placeholder" />
-                  <div className="absolute inset-0 bg-kickstart-lime/5 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg pointer-events-none" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em] leading-none">Scan with any UPI App</p>
-                  <p className="text-sm font-black text-gray-900 tracking-tight">—</p>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* Invoice Configuration */}
           <div className="space-y-4">
@@ -748,6 +883,56 @@ export default function CreateInvoice() {
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
                   <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
                   <div>
+                  <Dialog open={isQrPaymentDialogOpen} onOpenChange={setIsQrPaymentDialogOpen}>
+                    <DialogContent className="sm:max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Payment</DialogTitle>
+                        <DialogDescription>
+                          {paymentMode === 'QR'
+                            ? 'Ask the customer to scan and complete payment. Once paid, click the button below to generate the invoice.'
+                            : 'Confirm that payment is collected. Once paid, click the button below to generate the invoice.'}
+                        </DialogDescription>
+                      </DialogHeader>
+
+                      {paymentMode === 'QR' ? (
+                        <div className="rounded-2xl border border-kickstart-lime/20 bg-kickstart-lime/5 p-4 flex flex-col items-center gap-3 text-center">
+                          {academy.upiQrUrl ? (
+                            <img
+                              src={academy.upiQrUrl}
+                              alt="UPI QR code"
+                              width={176}
+                              height={176}
+                              className="w-44 h-44 rounded-xl object-cover border border-gray-200 bg-white"
+                            />
+                          ) : (
+                            <div className="w-44 h-44 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-xs font-semibold text-gray-400 px-3">
+                              QR not configured
+                            </div>
+                          )}
+                          <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em]">Scan with any UPI app</p>
+                          <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || 'UPI ID not configured'}</p>
+                        </div>
+                      ) : (
+                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
+                          <p className="text-sm font-semibold text-gray-700">Payment mode: {paymentMode}</p>
+                        </div>
+                      )}
+
+                      <DialogFooter className="gap-2">
+                        <Button type="button" variant="outline" onClick={() => setIsQrPaymentDialogOpen(false)} disabled={isSaving}>
+                          Go Back
+                        </Button>
+                        <Button
+                          type="button"
+                          className="bg-kickstart-forest hover:bg-kickstart-forest/90"
+                          onClick={() => void handleFinalizeInvoice(true)}
+                          disabled={isSaving}
+                        >
+                          {isSaving ? 'Generating...' : 'Paid, Generate Invoice'}
+                        </Button>
+                      </DialogFooter>
+                    </DialogContent>
+                  </Dialog>
                     <p className="text-xs font-bold text-amber-800">Invoice Already Exists</p>
                     <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their batch. The base amount is locked at zero.</p>
                   </div>
@@ -1072,6 +1257,58 @@ export default function CreateInvoice() {
         </div>
       </div>
     </div>
+
+    <Dialog open={isQrPaymentDialogOpen} onOpenChange={setIsQrPaymentDialogOpen}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Payment</DialogTitle>
+          <DialogDescription>
+            {paymentMode === 'QR'
+              ? 'Ask the customer to scan and complete payment. Once paid, click the button below to generate the invoice.'
+              : 'Confirm that payment is collected. Once paid, click the button below to generate the invoice.'}
+          </DialogDescription>
+        </DialogHeader>
+
+        {paymentMode === 'QR' ? (
+          <div className="rounded-2xl border border-kickstart-lime/20 bg-kickstart-lime/5 p-4 flex flex-col items-center gap-3 text-center">
+            {academy.upiQrUrl ? (
+              <img
+                src={academy.upiQrUrl}
+                alt="UPI QR code"
+                width={176}
+                height={176}
+                className="w-44 h-44 rounded-xl object-cover border border-gray-200 bg-white"
+              />
+            ) : (
+              <div className="w-44 h-44 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-xs font-semibold text-gray-400 px-3">
+                QR not configured
+              </div>
+            )}
+            <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em]">Scan with any UPI app</p>
+            <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || 'UPI ID not configured'}</p>
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
+            <p className="text-sm font-semibold text-gray-700">Payment mode: {paymentMode}</p>
+          </div>
+        )}
+
+        <DialogFooter className="gap-2">
+          <Button type="button" variant="outline" onClick={() => setIsQrPaymentDialogOpen(false)} disabled={isSaving}>
+            Go Back
+          </Button>
+          <Button
+            type="button"
+            className="bg-kickstart-forest hover:bg-kickstart-forest/90"
+            onClick={() => void handleFinalizeInvoice(true)}
+            disabled={isSaving}
+          >
+            {isSaving ? 'Generating...' : 'Paid, Generate Invoice'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+    </>
     )
   );
 }

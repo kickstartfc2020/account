@@ -50,6 +50,7 @@ export default function Invoices() {
 
   const { data: invoices = [] } = useInvoices();
   const { data: sports = [], loading: sportsLoading } = useSports();
+  const activeSports = React.useMemo(() => sports.filter((sport) => sport.status === 'active'), [sports]);
   const academy = useAcademyDetails();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -206,7 +207,7 @@ export default function Invoices() {
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3 py-2">
-            {sports.map((sport) => (
+            {activeSports.map((sport) => (
               <Button
                 key={sport.id}
                 variant="outline"
@@ -216,7 +217,7 @@ export default function Invoices() {
                 <span className="font-bold text-gray-700">{sport.name}</span>
               </Button>
             ))}
-            {sports.length === 0 && (
+            {activeSports.length === 0 && (
               <p className="text-sm text-slate-500 py-1">No sports configured. You can still create a manual invoice.</p>
             )}
             <Separator className="my-1" />
