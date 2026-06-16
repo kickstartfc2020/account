@@ -36,14 +36,16 @@ const SPORT_ICON_MAP: Record<string, string> = {
 
 // ── Branches / Locations ──────────────────────────────────────────────────────
 
+let locationsCache: Location[] | null = null;
+
 export function useLocations() {
-  const [data, setData] = useState<Location[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Location[]>(locationsCache ?? []);
+  const [loading, setLoading] = useState(!locationsCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     let active = true;
-    setLoading(true);
+    if (!locationsCache) setLoading(true);
     supabase
       .from('branches')
         .select('id, ref_id, name, address, phone, email, image, status')
@@ -73,6 +75,7 @@ export function useLocations() {
         );
 
         if (!active) return;
+        locationsCache = mapped;
         setData(mapped);
       });
 
@@ -86,14 +89,17 @@ export function useLocations() {
 
 // ── Staff / Profiles ────────────────────────────────────────────────────────
 
+type StaffMember = { id: string; branchId: string | null; role: string; status: string };
+let staffMembersCache: StaffMember[] | null = null;
+
 export function useStaffMembers() {
-  const [data, setData] = useState<{ id: string; branchId: string | null; role: string; status: string }[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<StaffMember[]>(staffMembersCache ?? []);
+  const [loading, setLoading] = useState(!staffMembersCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     let active = true;
-    setLoading(true);
+    if (!staffMembersCache) setLoading(true);
     supabase
       .from('profiles')
       .select('id, branch_id, role, status')
@@ -105,14 +111,14 @@ export function useStaffMembers() {
         }
         if (!active) return;
         const r = (rows ?? []) as any[];
-        setData(
-          r.map((p) => ({
-            id: p.id as string,
-            branchId: (p.branch_id ?? null) as string | null,
-            role: p.role as string,
-            status: (p.status as string) || 'active',
-          }))
-        );
+        const mapped = r.map((p) => ({
+          id: p.id as string,
+          branchId: (p.branch_id ?? null) as string | null,
+          role: p.role as string,
+          status: (p.status as string) || 'active',
+        }));
+        staffMembersCache = mapped;
+        setData(mapped);
       });
 
     return () => {
@@ -125,13 +131,15 @@ export function useStaffMembers() {
 
 // ── GST Rates ────────────────────────────────────────────────────────────────
 
+let gstRatesCache: GSTRate[] | null = null;
+
 export function useGstRates() {
-  const [data, setData] = useState<GSTRate[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<GSTRate[]>(gstRatesCache ?? []);
+  const [loading, setLoading] = useState(!gstRatesCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    setLoading(true);
+    if (!gstRatesCache) setLoading(true);
     supabase
       .from('gst_rates')
       .select('id, name, percentage, is_default')
@@ -144,14 +152,14 @@ export function useGstRates() {
           return;
         }
         const r = (rows ?? []) as any[];
-        setData(
-          r.map((rate) => ({
-            id: rate.id as string,
-            name: rate.name as string,
-            percentage: Number(rate.percentage),
-            isDefault: Boolean(rate.is_default),
-          }))
-        );
+        const mapped = r.map((rate) => ({
+          id: rate.id as string,
+          name: rate.name as string,
+          percentage: Number(rate.percentage),
+          isDefault: Boolean(rate.is_default),
+        }));
+        gstRatesCache = mapped;
+        setData(mapped);
       });
   }, []);
 
@@ -160,13 +168,15 @@ export function useGstRates() {
 
 // ── Sports ────────────────────────────────────────────────────────────────────
 
+  let sportsCache: Sport[] | null = null;
+
   export function useSports() {
-    const [data, setData] = useState<Sport[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [data, setData] = useState<Sport[]>(sportsCache ?? []);
+    const [loading, setLoading] = useState(!sportsCache);
 
     useEffect(() => {
       if (!isSupabaseConfigured || !supabase) return;
-      setLoading(true);
+      if (!sportsCache) setLoading(true);
       supabase
         .from('sports')
         .select('id, name, status')
@@ -179,17 +189,17 @@ export function useGstRates() {
             return;
           }
           const r = (rows ?? []) as any[];
-          setData(
-            r.map((s) => ({
-              id: s.id as string,
-              name: s.name as string,
-              icon: SPORT_ICON_MAP[s.name as string] ?? 'Trophy',
-              studentsCount: 0,
-              packagesCount: 0,
-              revenue: 0,
-              status: (s.status === 'active' ? 'active' : 'inactive') as 'active' | 'inactive',
-            }))
-          );
+          const mapped = r.map((s) => ({
+            id: s.id as string,
+            name: s.name as string,
+            icon: SPORT_ICON_MAP[s.name as string] ?? 'Trophy',
+            studentsCount: 0,
+            packagesCount: 0,
+            revenue: 0,
+            status: (s.status === 'active' ? 'active' : 'inactive') as 'active' | 'inactive',
+          }));
+          sportsCache = mapped;
+          setData(mapped);
         });
     }, []);
 
@@ -198,13 +208,15 @@ export function useGstRates() {
 
   // ── Packages ──────────────────────────────────────────────────────────────────
 
+  let packagesCache: Package[] | null = null;
+
   export function usePackages() {
-    const [data, setData] = useState<Package[]>([]);
-    const [loading, setLoading] = useState(false);
+    const [data, setData] = useState<Package[]>(packagesCache ?? []);
+    const [loading, setLoading] = useState(!packagesCache);
 
     useEffect(() => {
       if (!isSupabaseConfigured || !supabase) return;
-      setLoading(true);
+      if (!packagesCache) setLoading(true);
       supabase
         .from('packages')
         .select('id, ref_id, name, sport_id, billing_type, duration_months, amount, gst_percent, status, sports(name)')
@@ -217,20 +229,20 @@ export function useGstRates() {
             return;
           }
           const r = (rows ?? []) as any[];
-          setData(
-            r.map((p) => ({
-              id: p.id as string,
-              refId: (p.ref_id ?? '') as string,
-              name: p.name as string,
-              sportId: p.sport_id as string,
-              sportName: (p.sports as { name: string } | null)?.name ?? '',
-              billingType: (p.billing_type === 'recurring_monthly' ? 'recurring' : 'one-time') as 'one-time' | 'recurring',
-              durationMonths: p.duration_months as number,
-              price: p.amount as number,
-              taxPercent: p.gst_percent as number,
-              status: (p.status === 'active' ? 'active' : 'inactive') as 'active' | 'inactive',
-            }))
-          );
+          const mapped = r.map((p) => ({
+            id: p.id as string,
+            refId: (p.ref_id ?? '') as string,
+            name: p.name as string,
+            sportId: p.sport_id as string,
+            sportName: (p.sports as { name: string } | null)?.name ?? '',
+            billingType: (p.billing_type === 'recurring_monthly' ? 'recurring' : 'one-time') as 'one-time' | 'recurring',
+            durationMonths: p.duration_months as number,
+            price: p.amount as number,
+            taxPercent: p.gst_percent as number,
+            status: (p.status === 'active' ? 'active' : 'inactive') as 'active' | 'inactive',
+          }));
+          packagesCache = mapped;
+          setData(mapped);
         });
     }, []);
 
@@ -239,13 +251,15 @@ export function useGstRates() {
 
   // ── Students ──────────────────────────────────────────────────────────────────
 
+let studentsCache: Student[] | null = null;
+
 export function useStudents() {
-  const [data, setData] = useState<Student[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Student[]>(studentsCache ?? []);
+  const [loading, setLoading] = useState(!studentsCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    setLoading(true);
+    if (!studentsCache) setLoading(true);
     supabase
       .from('students')
       .select(
@@ -260,8 +274,7 @@ export function useStudents() {
           return;
         }
           const r = (rows ?? []) as any[];
-          setData(
-            r.map((s) => {
+          const mapped = r.map((s) => {
               const branch = s.branches as { name: string } | null;
               const pkg = s.packages as {
                 id: string; name: string; sport_id: string;
@@ -293,8 +306,9 @@ export function useStudents() {
                 status: computeStudentStatus(expiryDate, s.joined_at as string | null | undefined),
                 joinedAt: s.joined_at as string,
               };
-            })
-        );
+            });
+          studentsCache = mapped;
+          setData(mapped);
       });
   }, []);
 
@@ -303,16 +317,22 @@ export function useStudents() {
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
+let invoicesCache: Invoice[] | null = null;
+
 export function useInvoices() {
-  const [data, setData] = useState<Invoice[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Invoice[]>(invoicesCache ?? []);
+  const [loading, setLoading] = useState(!invoicesCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
     const storageEventName = 'app:invoices:changed';
 
     const loadInvoices = () => {
-      setLoading(true);
+      // Only show the loading state on the very first load. Refetches
+      // triggered by focus/visibility/storage events (e.g. switching back
+      // to this browser tab) should refresh data silently in the
+      // background instead of flashing the list to empty/loading again.
+      if (!invoicesCache) setLoading(true);
       supabase
         .from('invoices')
         .select(
@@ -327,7 +347,7 @@ export function useInvoices() {
             return;
           }
             const r = (rows ?? []) as any[];
-            setData(
+            const mapped =
               r.map((inv) => {
                 const student = inv.students as { name: string; ref_id: string | null; email: string | null } | null;
                 const branch = inv.branches as { name: string } | null;
@@ -363,8 +383,9 @@ export function useInvoices() {
                     lineTotal: Number(item.line_total ?? 0),
                   })),
                 };
-              })
-          );
+              });
+            invoicesCache = mapped;
+            setData(mapped);
         });
     };
 
@@ -399,13 +420,15 @@ export function useInvoices() {
 
 // ── Renewals ──────────────────────────────────────────────────────────────────
 
+let renewalsCache: Renewal[] | null = null;
+
 export function useRenewals() {
-  const [data, setData] = useState<Renewal[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<Renewal[]>(renewalsCache ?? []);
+  const [loading, setLoading] = useState(!renewalsCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    setLoading(true);
+    if (!renewalsCache) setLoading(true);
     supabase
       .from('renewals')
       .select('id, ref_id, student_id, package_id, cycle_end, due_date, status, students(name), packages(name, sports(name))')
@@ -418,8 +441,7 @@ export function useRenewals() {
           return;
         }
           const r = (rows ?? []) as any[];
-          setData(
-            r.map((rv) => {
+          const mapped = r.map((rv) => {
               const student = rv.students as { name: string } | null;
               const pkg = rv.packages as { name: string; sports: { name: string } | null } | null;
               const daysLeft = differenceInDays(parseISO(rv.cycle_end as string), new Date());
@@ -439,21 +461,24 @@ export function useRenewals() {
               status,
               renewalStatus,
             };
-            })
-          );
+            });
+          renewalsCache = mapped;
+          setData(mapped);
       });
   }, []);
 
   return { data, loading };
 }
 
+let studentEnrollmentsCache: StudentEnrollment[] | null = null;
+
 export function useStudentEnrollments() {
-  const [data, setData] = useState<StudentEnrollment[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [data, setData] = useState<StudentEnrollment[]>(studentEnrollmentsCache ?? []);
+  const [loading, setLoading] = useState(!studentEnrollmentsCache);
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    setLoading(true);
+    if (!studentEnrollmentsCache) setLoading(true);
     Promise.all([
       supabase
         .from('renewals')
@@ -555,7 +580,9 @@ export function useStudentEnrollments() {
         });
       }
 
-      setData(Array.from(enrollmentMap.values()));
+      const mapped = Array.from(enrollmentMap.values());
+      studentEnrollmentsCache = mapped;
+      setData(mapped);
     });
   }, []);
 
