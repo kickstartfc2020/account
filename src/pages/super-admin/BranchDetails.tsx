@@ -1,19 +1,28 @@
 import React from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { 
-  Users, 
-  TrendingUp, 
-  Mail, 
-  ShieldAlert, 
+import {
+  Users,
+  TrendingUp,
+  Mail,
+  ShieldAlert,
   ArrowLeft,
   Key,
-  Target
+  Target,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { useLocations, useStudents, useInvoices } from '@/hooks/useData';
 import { 
   PieChart, 
@@ -28,7 +37,7 @@ import {
   CartesianGrid
 } from 'recharts';
 import { toast } from 'sonner';
-import { setBranchStatus } from '@/lib/adminManagement';
+import { setBranchStatus, deleteBranch } from '@/lib/adminManagement';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { format, formatDistanceToNow, parseISO, subMonths } from 'date-fns';
 import { useAuth } from '@/auth/AuthProvider';
@@ -47,6 +56,8 @@ export default function BranchDetails() {
   const location = locations.find(l => l.id === id) || locations[0];
   const [isFreezing, setIsFreezing] = React.useState(false);
   const [isResetting, setIsResetting] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
+  const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const canManageBranchSecurity = role === 'super_admin';
   const locationMeta = location as (typeof location & {
     createdAt?: string;
@@ -117,6 +128,26 @@ export default function BranchDetails() {
     () => invoices.filter((inv) => inv.locationId === location?.id),
     [invoices, location?.id]
   );
+
+  const canDeleteBranch = canManageBranchSecurity && branchStudents.length === 0 && branchInvoices.length === 0;
+
+  const handleDeleteBranch = async () => {
+    if (!ensureSuperAdmin()) return;
+    if (!location?.id) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteBranch(location.id);
+      toast.success('Branch deleted.');
+      setDeleteDialogOpen(false);
+      navigate('/super-admin');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete branch.';
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const branchRevenue = React.useMemo(
     () => branchInvoices.reduce((acc, inv) => acc + inv.total, 0),
@@ -325,6 +356,18 @@ export default function BranchDetails() {
                 >
                   {isFreezing ? 'Freezing...' : 'Freeze Account Access'}
                 </Button>
+                {canManageBranchSecurity && (
+                  <Button
+                    variant="outline"
+                    className="w-full text-red-600 border-red-200 hover:bg-red-50 h-11"
+                    onClick={() => setDeleteDialogOpen(true)}
+                    disabled={!canDeleteBranch}
+                    title={canDeleteBranch ? undefined : 'Branch can only be deleted when it has 0 students and 0 invoices.'}
+                  >
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete Branch
+                  </Button>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -352,6 +395,34 @@ export default function BranchDetails() {
           </Card>
         </div>
       </div>
+
+      <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <DialogContent className="sm:max-w-[425px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display font-bold text-slate-900">Delete Branch?</DialogTitle>
+            <DialogDescription className="text-slate-500 pt-2">
+              This will permanently delete <span className="font-bold text-slate-900">{location?.name}</span> and
+              its branch-scoped sports/packages. This cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-3 mt-4">
+            <Button
+              variant="outline"
+              onClick={() => setDeleteDialogOpen(false)}
+              className="h-11 px-6 rounded-xl font-bold text-slate-500 border-slate-200"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleDeleteBranch()}
+              disabled={isDeleting}
+              className="h-11 px-8 rounded-xl font-bold bg-red-600 hover:bg-red-700 shadow-lg shadow-red-100 transition-all active:scale-95"
+            >
+              {isDeleting ? 'Deleting...' : 'Yes, Delete Branch'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

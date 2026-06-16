@@ -46,10 +46,33 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-function buildOrganizationAssetPath(prefix: string, organizationId: string, file: File) {
-  const dotIndex = file.name.lastIndexOf('.');
-  const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
-  return `${prefix}/${organizationId}/${Date.now()}.${extension}`;
+const ALLOWED_IMAGE_EXTENSIONS_BY_TYPE: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+};
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+
+// Extension is derived from the validated MIME type, never from the
+// user-supplied file name, so the upload path can't be influenced by it.
+function assertValidImageFile(file: File): string {
+  const extension = ALLOWED_IMAGE_EXTENSIONS_BY_TYPE[file.type];
+  if (!extension) {
+    throw new Error('Unsupported file type. Please upload a JPG, PNG, or WEBP image.');
+  }
+
+  if (file.size > MAX_IMAGE_BYTES) {
+    throw new Error('Image is too large. Maximum size is 5 MB.');
+  }
+
+  return extension;
+}
+
+// Must stay in sync with the `organization/<org_id>/...` prefix that
+// public.can_manage_branch_image_object() checks for organization_admin callers.
+function buildOrganizationAssetPath(prefix: string, organizationId: string, extension: string) {
+  return `organization/${organizationId}/${prefix}-${Date.now()}.${extension}`;
 }
 
 async function resolveProfileContext(): Promise<ProfileContext> {
@@ -279,8 +302,7 @@ export async function uploadBranchImage(branchId: string, file: File) {
     throw new Error('Supabase is not configured.');
   }
 
-  const dotIndex = file.name.lastIndexOf('.');
-  const extension = dotIndex > -1 ? file.name.slice(dotIndex + 1).toLowerCase() : 'jpg';
+  const extension = assertValidImageFile(file);
   const path = `${branchId}/${Date.now()}.${extension}`;
 
   const { error: uploadError } = await supabase.storage
@@ -328,6 +350,18 @@ export async function deleteAuthUser(userId: string) {
   });
 
   if (error) throw error;
+}
+
+export async function deleteBranch(branchId: string) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const { error } = await (supabase as any).rpc('admin_delete_branch', {
+    p_branch_id: branchId,
+  });
+
+  if (error) throw new Error(error.message || 'Failed to delete branch.');
 }
 
 export async function setBranchStatus(branchId: string, status: 'active' | 'inactive') {
@@ -417,8 +451,9 @@ export async function uploadOrganizationLogo(file: File) {
     throw new Error('Supabase is not configured.');
   }
 
+  const extension = assertValidImageFile(file);
   const organizationId = await resolveOrganizationId();
-  const path = buildOrganizationAssetPath('organization-logo', organizationId, file);
+  const path = buildOrganizationAssetPath('organization-logo', organizationId, extension);
 
   let logoUrl: string;
   let persistedValue: string;
@@ -456,8 +491,9 @@ export async function uploadOrganizationQrCode(file: File) {
     throw new Error('Supabase is not configured.');
   }
 
+  const extension = assertValidImageFile(file);
   const organizationId = await resolveOrganizationId();
-  const path = buildOrganizationAssetPath('organization-qr', organizationId, file);
+  const path = buildOrganizationAssetPath('organization-qr', organizationId, extension);
 
   let qrUrl: string;
   let persistedValue: string;
