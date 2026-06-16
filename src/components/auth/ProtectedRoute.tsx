@@ -1,4 +1,3 @@
-import React from 'react';
 import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth, type AppRole } from '@/auth/AuthProvider';
 
@@ -8,17 +7,6 @@ type ProtectedRouteProps = {
 
 export default function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   const { user, role, loading, isConfigured, signOut } = useAuth();
-
-  React.useEffect(() => {
-    // loading is false means role resolution has already finished -- if
-    // role is still null here, there is genuinely no profile for this
-    // session (e.g. the account was deleted while the browser still held
-    // a valid token), not "still loading". Sign out instead of trapping
-    // the user on a spinner with no way out.
-    if (!loading && allowedRoles && user && role === null) {
-      void signOut();
-    }
-  }, [loading, allowedRoles, user, role, signOut]);
 
   if (!isConfigured) return <Outlet />;
 
@@ -33,7 +21,36 @@ export default function ProtectedRoute({ allowedRoles }: ProtectedRouteProps) {
   if (!user) return <Navigate to="/login" replace />;
 
   if (allowedRoles && role === null) {
-    return <Navigate to="/login" replace />;
+    // Role resolution finished but came back empty. This can mean the
+    // account genuinely has no profile (e.g. it was deleted), or it can
+    // mean a transient network/RPC failure -- those look identical from
+    // here, so don't silently force a sign-out (that caused a login/kick
+    // loop on flaky connections). Give the user a way to retry or leave
+    // instead of trapping them on an unrecoverable spinner.
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
+        <div className="text-center space-y-4 max-w-sm">
+          <p className="text-sm text-slate-600">
+            We couldn't confirm your account access. This can happen after a network hiccup, or if your account no
+            longer exists.
+          </p>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 text-sm font-medium rounded-lg bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              Retry
+            </button>
+            <button
+              onClick={() => void signOut()}
+              className="px-4 py-2 text-sm font-medium rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50"
+            >
+              Log out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (allowedRoles && role && !allowedRoles.includes(role)) {

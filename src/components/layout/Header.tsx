@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { Separator } from '@/components/ui/separator';
+import { useAuth } from '@/auth/AuthProvider';
 import {
   Dialog,
   DialogContent,
@@ -22,6 +23,8 @@ import {
 } from "@/components/ui/dialog";
 
 export function Header() {
+  const { role } = useAuth();
+  const isSuperAdmin = role === 'super_admin';
   const { data: locations } = useLocations();
   const { data: sports, loading: sportsLoading } = useSports();
   const activeSports = React.useMemo(() => sports.filter((sport) => sport.status === 'active'), [sports]);
@@ -61,15 +64,19 @@ export function Header() {
       <div className="flex-1"></div>
 
       <div className="flex items-center gap-4">
-        <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg">
-          <span className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Branch:</span>
-          <span className="text-sm font-bold text-indigo-700">{currentBranchName}</span>
-        </div>
+        {!isSuperAdmin && (
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 border border-indigo-100 rounded-lg">
+            <span className="text-indigo-400 text-[10px] font-bold uppercase tracking-widest">Branch:</span>
+            <span className="text-sm font-bold text-indigo-700">{currentBranchName}</span>
+          </div>
+        )}
 
-        <Button variant="ghost" size="icon" className="relative text-slate-500">
-          <Bell className="w-5 h-5" />
-          <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
-        </Button>
+        {!isSuperAdmin && (
+          <Button variant="ghost" size="icon" className="relative text-slate-500">
+            <Bell className="w-5 h-5" />
+            <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
+          </Button>
+        )}
 
         <Button className="btn-primary gap-2" onClick={handleCreateInvoiceClick} disabled={sportsLoading}>
           <ReceiptText className="w-4 h-4" />
