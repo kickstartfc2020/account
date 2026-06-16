@@ -1,34 +1,35 @@
 import React from 'react';
-import { 
-  Users, 
-  Search, 
-  Filter, 
-  MoreVertical, 
-  UserPlus, 
-  Mail, 
-  Shield, 
+import {
+  Users,
+  Search,
+  Filter,
+  UserPlus,
+  Mail,
+  Shield,
   MapPin,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  Trash2
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '@/components/ui/table';
 import { cn } from '@/lib/utils';
 import { useLocations } from '@/hooks/useData';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { createBranchManagerAccount } from '@/lib/adminManagement';
+import { createBranchManagerAccount, deleteAuthUser } from '@/lib/adminManagement';
 import { reportOperationalError } from '@/lib/observability';
+import { useAuth } from '@/auth/AuthProvider';
 import {
   Dialog,
   DialogContent,
@@ -57,6 +58,7 @@ type AdminUserRow = {
 };
 
 export default function UserManagement() {
+  const { user: currentUser } = useAuth();
   const { data: locations } = useLocations();
   const [users, setUsers] = React.useState<AdminUserRow[]>([]);
   const [isAddAdminOpen, setIsAddAdminOpen] = React.useState(false);
@@ -65,8 +67,10 @@ export default function UserManagement() {
   const [password, setPassword] = React.useState('');
   const [branchId, setBranchId] = React.useState('');
   const [isCreating, setIsCreating] = React.useState(false);
+  const [deleteTarget, setDeleteTarget] = React.useState<AdminUserRow | null>(null);
+  const [isDeleting, setIsDeleting] = React.useState(false);
 
-  React.useEffect(() => {
+  const loadUsers = React.useCallback(() => {
     if (!isSupabaseConfigured || !supabase) return;
     supabase
       .from('profiles')
@@ -86,7 +90,7 @@ export default function UserManagement() {
             return {
               id: p.id as string,
               name: (p.full_name as string) || 'Unnamed User',
-              email: location?.email || 'No email available',
+              email: (p.email as string) || 'No email on record',
               role: title || 'Unknown',
               branch: location?.name || 'Global',
               lastActive: 'From auth session',
@@ -96,6 +100,26 @@ export default function UserManagement() {
         );
       });
   }, [locations]);
+
+  React.useEffect(() => {
+    loadUsers();
+  }, [loadUsers]);
+
+  const handleDeleteUser = async () => {
+    if (!deleteTarget) return;
+    setIsDeleting(true);
+    try {
+      await deleteAuthUser(deleteTarget.id);
+      setUsers((prev) => prev.filter((u) => u.id !== deleteTarget.id));
+      toast.success('User deleted.');
+      setDeleteTarget(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete user.';
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const resetCreateAdminForm = React.useCallback(() => {
     setFullName('');
@@ -129,26 +153,19 @@ export default function UserManagement() {
 
     setIsCreating(true);
     try {
-      const { userId } = await createBranchManagerAccount({
+      await createBranchManagerAccount({
         email,
         password,
         fullName,
         branchId,
       });
 
-      const selectedBranch = locations.find((location) => location.id === branchId);
-      setUsers((prev) => [
-        {
-          id: userId,
-          name: fullName.trim(),
-          email: email.trim(),
-          role: 'Branch Manager',
-          branch: selectedBranch?.name || 'Unknown Branch',
-          lastActive: 'Just created',
-          status: 'active',
-        },
-        ...prev,
-      ]);
+      // Refetch from the server rather than guessing the new row locally,
+      // so the list always reflects what's actually stored (this is what
+      // was masking newly added branch managers as "duplicates" before --
+      // the old local-state row looked right, but a reload showed the
+      // branch's contact email for everyone instead of each user's own).
+      loadUsers();
 
       toast.success('Admin user created successfully.');
       setIsAddAdminOpen(false);
@@ -255,8 +272,15 @@ export default function UserManagement() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                      <MoreVertical className="w-4 h-4" />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-gray-400 hover:text-red-600 hover:bg-red-50"
+                      title={user.id === currentUser?.id ? 'You cannot delete your own account' : 'Delete user'}
+                      disabled={user.id === currentUser?.id}
+                      onClick={() => setDeleteTarget(user)}
+                    >
+                      <Trash2 className="w-4 h-4" />
                     </Button>
                   </TableCell>
                 </TableRow>
@@ -380,6 +404,31 @@ export default function UserManagement() {
               disabled={isCreating || locations.length === 0}
             >
               {isCreating ? 'Creating...' : 'Create Admin'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!deleteTarget} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete User?</DialogTitle>
+            <DialogDescription>
+              This will permanently delete <span className="font-bold text-slate-900">{deleteTarget?.name}</span> (
+              {deleteTarget?.email}) and revoke their login. This cannot be undone. Users who have created or
+              updated invoices, payments, or students cannot be deleted -- deactivate them instead.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={() => void handleDeleteUser()}
+              disabled={isDeleting}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              {isDeleting ? 'Deleting...' : 'Yes, Delete User'}
             </Button>
           </DialogFooter>
         </DialogContent>

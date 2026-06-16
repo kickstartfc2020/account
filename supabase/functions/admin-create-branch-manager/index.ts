@@ -119,6 +119,7 @@ Deno.serve(async (req) => {
       role: 'branch_manager',
       full_name: fullName || null,
       status: 'active',
+      email,
     });
 
     if (profileError) {
