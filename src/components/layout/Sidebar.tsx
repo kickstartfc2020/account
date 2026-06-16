@@ -39,14 +39,17 @@ const branchAdminItems = [
 ];
 
 export function Sidebar() {
-  const { role, signOut } = useAuth();
+  const { role, loading, signOut } = useAuth();
   const location = useLocation();
   const academy = useAcademyDetails();
   const { data: locations } = useLocations();
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const isSuperAdmin = role === 'super_admin';
-  const navItems = isSuperAdmin ? superAdminItems : branchAdminItems;
-  const roleLabel = isSuperAdmin ? 'super admin' : 'branch admin';
+  // While role is still resolving, role is null the same way it would be
+  // for a branch admin -- don't default to the branch-admin nav in that
+  // window, or the wrong sidebar flashes before the real role loads.
+  const navItems = loading ? [] : isSuperAdmin ? superAdminItems : branchAdminItems;
+  const roleLabel = loading ? '...' : isSuperAdmin ? 'super admin' : 'branch admin';
 
   React.useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
