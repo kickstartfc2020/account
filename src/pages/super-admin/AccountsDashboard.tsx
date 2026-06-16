@@ -9,14 +9,15 @@ import {
   Search,
   MoreVertical,
   ShieldCheck,
-  CalendarDays
+  CalendarDays,
+  Mail
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
-import { useLocations, useStudents, useInvoices } from '@/hooks/useData';
+import { useLocations, useStudents, useInvoices, useStaffMembers } from '@/hooks/useData';
 import { useNavigate } from 'react-router-dom';
 import { 
   Dialog,
@@ -43,7 +44,9 @@ export default function AccountsDashboard() {
   const { data: locations = [] } = useLocations();
   const { data: allStudents = [] } = useStudents();
   const { data: allInvoices = [] } = useInvoices();
+  const { data: staffMembers = [] } = useStaffMembers();
   const [isAddLocationOpen, setIsAddLocationOpen] = React.useState(false);
+  const [branchInfoLocation, setBranchInfoLocation] = React.useState<(typeof locations)[number] | null>(null);
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>(undefined);
   const [newBranchName, setNewBranchName] = React.useState('');
   const [newBranchEmail, setNewBranchEmail] = React.useState('');
@@ -63,6 +66,15 @@ export default function AccountsDashboard() {
     }
     return counts;
   }, [allStudents]);
+
+  const staffCountByLocation = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const staff of staffMembers) {
+      if (!staff.branchId) continue;
+      counts.set(staff.branchId, (counts.get(staff.branchId) ?? 0) + 1);
+    }
+    return counts;
+  }, [staffMembers]);
 
   const getRegionName = React.useCallback((location: (typeof allLocations)[number]) => {
     if (!location.address) return 'unknown';
@@ -417,7 +429,13 @@ export default function AccountsDashboard() {
                     <h3 className="font-bold text-lg text-gray-900">{location.name}</h3>
                     <p className="text-sm text-gray-500">{location.address}</p>
                   </div>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 text-gray-400">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-gray-400"
+                    title="View full branch details"
+                    onClick={() => navigate(`/super-admin/branch/${location.id}`)}
+                  >
                     <MoreVertical className="w-4 h-4" />
                   </Button>
                 </div>
@@ -434,13 +452,17 @@ export default function AccountsDashboard() {
                 </div>
 
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1 text-xs gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-xs gap-2"
+                    onClick={() => navigate('/super-admin/users')}
+                  >
                     Manage Staff
                   </Button>
-                  <Button 
-                    variant="outline" 
+                  <Button
+                    variant="outline"
                     className="flex-1 text-xs gap-2 bg-indigo-50 text-indigo-700 border-indigo-100 hover:bg-indigo-100"
-                    onClick={() => navigate(`/super-admin/branch/${location.id}`)}
+                    onClick={() => setBranchInfoLocation(location)}
                   >
                     Branch Info
                   </Button>
@@ -450,6 +472,34 @@ export default function AccountsDashboard() {
           ))}
         </div>
       </div>
+
+      <Dialog open={!!branchInfoLocation} onOpenChange={(open) => !open && setBranchInfoLocation(null)}>
+        <DialogContent className="sm:max-w-[400px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display font-bold text-slate-900">
+              {branchInfoLocation?.name}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
+              <Mail className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Admin Email</p>
+                <p className="text-sm font-medium text-gray-900">{branchInfoLocation?.email || 'Not available'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gray-50">
+              <Users className="w-4 h-4 text-indigo-500 shrink-0" />
+              <div>
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Staff</p>
+                <p className="text-sm font-medium text-gray-900">
+                  {branchInfoLocation ? staffCountByLocation.get(branchInfoLocation.id) ?? 0 : 0}
+                </p>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

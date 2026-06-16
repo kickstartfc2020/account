@@ -84,6 +84,45 @@ export function useLocations() {
   return { data, loading };
 }
 
+// ── Staff / Profiles ────────────────────────────────────────────────────────
+
+export function useStaffMembers() {
+  const [data, setData] = useState<{ id: string; branchId: string | null; role: string; status: string }[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    let active = true;
+    setLoading(true);
+    supabase
+      .from('profiles')
+      .select('id, branch_id, role, status')
+      .then(({ data: rows, error }) => {
+        setLoading(false);
+        if (error) {
+          reportOperationalError('query.profiles', 'Failed to load staff.', error);
+          return;
+        }
+        if (!active) return;
+        const r = (rows ?? []) as any[];
+        setData(
+          r.map((p) => ({
+            id: p.id as string,
+            branchId: (p.branch_id ?? null) as string | null,
+            role: p.role as string,
+            status: (p.status as string) || 'active',
+          }))
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return { data, loading };
+}
+
 // ── GST Rates ────────────────────────────────────────────────────────────────
 
 export function useGstRates() {
