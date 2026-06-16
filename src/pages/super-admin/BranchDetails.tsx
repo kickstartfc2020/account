@@ -50,10 +50,10 @@ export default function BranchDetails() {
   const { id } = useParams();
   const navigate = useNavigate();
   const { role } = useAuth();
-  const { data: locations = [] } = useLocations();
+  const { data: locations = [], loading: locationsLoading } = useLocations();
   const { data: students = [] } = useStudents();
   const { data: invoices = [] } = useInvoices();
-  const location = locations.find(l => l.id === id) || locations[0];
+  const location = locations.find(l => l.id === id);
   const [isFreezing, setIsFreezing] = React.useState(false);
   const [isResetting, setIsResetting] = React.useState(false);
   const [isDeleting, setIsDeleting] = React.useState(false);
@@ -149,9 +149,24 @@ export default function BranchDetails() {
     }
   };
 
-  const branchRevenue = React.useMemo(
-    () => branchInvoices.reduce((acc, inv) => acc + inv.total, 0),
+  const billedInvoices = React.useMemo(
+    () => branchInvoices.filter((inv) => inv.status !== 'cancelled'),
     [branchInvoices]
+  );
+
+  const branchRevenue = React.useMemo(
+    () => billedInvoices.reduce((acc, inv) => acc + inv.total, 0),
+    [billedInvoices]
+  );
+
+  const branchCollected = React.useMemo(
+    () => billedInvoices.reduce((acc, inv) => acc + (inv.total - inv.balanceAmount), 0),
+    [billedInvoices]
+  );
+
+  const branchPending = React.useMemo(
+    () => billedInvoices.reduce((acc, inv) => acc + inv.balanceAmount, 0),
+    [billedInvoices]
   );
 
   const activeSportsCount = React.useMemo(
@@ -171,15 +186,18 @@ export default function BranchDetails() {
     const now = new Date();
     const months = Array.from({ length: 4 }).map((_, idx) => {
       const d = subMonths(now, 3 - idx);
-      return { key: format(d, 'yyyy-MM'), month: format(d, 'MMM'), revenue: 0 };
+      return { key: format(d, 'yyyy-MM'), month: format(d, 'MMM'), billed: 0, collected: 0 };
     });
-    for (const inv of branchInvoices) {
+    for (const inv of billedInvoices) {
       const key = format(parseISO(inv.date), 'yyyy-MM');
       const row = months.find((m) => m.key === key);
-      if (row) row.revenue += inv.total;
+      if (row) {
+        row.billed += inv.total;
+        row.collected += inv.total - inv.balanceAmount;
+      }
     }
     return months;
-  }, [branchInvoices]);
+  }, [billedInvoices]);
 
   const recentLogs = React.useMemo(() => {
     const studentLogs = branchStudents.slice(0, 3).map((s) => ({
@@ -209,6 +227,35 @@ export default function BranchDetails() {
     ? 'bg-green-100 text-green-700'
     : 'bg-amber-100 text-amber-700';
 
+  if (!location) {
+    if (locationsLoading) {
+      return (
+        <div className="space-y-8 max-w-7xl mx-auto">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
+              <ArrowLeft className="w-5 h-5" />
+            </Button>
+            <p className="text-gray-500 font-medium">Loading branch details...</p>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-8 max-w-7xl mx-auto">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)} className="rounded-full">
+            <ArrowLeft className="w-5 h-5" />
+          </Button>
+          <div>
+            <h1 className="text-2xl font-display font-bold text-gray-900 tracking-tight">Branch not found</h1>
+            <p className="text-gray-500 font-medium">This branch may have been deleted or you no longer have access to it.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
       <div className="flex items-center gap-4">
@@ -224,7 +271,7 @@ export default function BranchDetails() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <div className="lg:col-span-2 space-y-8">
           {/* Branch Overview Stats */}
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Card className="glass-card p-5">
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Students</p>
               <div className="flex items-end justify-between mt-2">
@@ -233,28 +280,36 @@ export default function BranchDetails() {
               </div>
             </Card>
             <Card className="glass-card p-5">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Revenue</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Total Billed</p>
               <div className="flex items-end justify-between mt-2">
                 <h3 className="text-2xl font-bold text-gray-900">₹{branchRevenue.toLocaleString()}</h3>
                 <TrendingUp className="w-5 h-5 text-emerald-500" />
               </div>
             </Card>
             <Card className="glass-card p-5">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Active Sports</p>
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Collected</p>
               <div className="flex items-end justify-between mt-2">
-                <h3 className="text-2xl font-bold text-gray-900">{activeSportsCount}</h3>
+                <h3 className="text-2xl font-bold text-emerald-600">₹{branchCollected.toLocaleString()}</h3>
+                <TrendingUp className="w-5 h-5 text-emerald-500" />
+              </div>
+            </Card>
+            <Card className="glass-card p-5">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Pending</p>
+              <div className="flex items-end justify-between mt-2">
+                <h3 className="text-2xl font-bold text-amber-600">₹{branchPending.toLocaleString()}</h3>
                 <Target className="w-5 h-5 text-amber-500" />
               </div>
             </Card>
           </div>
 
-          {/* Revenue Performance */}
+          {/* Collections Performance */}
           <Card className="glass-card">
             <CardHeader>
               <CardTitle className="text-lg font-bold flex items-center gap-2">
                 <TrendingUp className="w-5 h-5 text-emerald-500" />
-                Revenue Performance
+                Collections Performance
               </CardTitle>
+              <CardDescription>Billed amount vs. actually collected, by month.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="h-[300px] w-full">
@@ -268,8 +323,13 @@ export default function BranchDetails() {
                       tick={{ fontSize: 12, fill: '#94a3b8' }}
                       tickFormatter={(v) => `₹${Math.round(v).toLocaleString('en-IN')}`}
                     />
-                    <Tooltip cursor={{ fill: '#f8fafc' }} contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0/0.1)' }} />
-                    <Bar dataKey="revenue" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={40} />
+                    <Tooltip
+                      cursor={{ fill: '#f8fafc' }}
+                      contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0/0.1)' }}
+                      formatter={(value: number) => `₹${Math.round(value).toLocaleString('en-IN')}`}
+                    />
+                    <Bar dataKey="billed" name="Billed" fill="#c7d2fe" radius={[4, 4, 0, 0]} barSize={28} />
+                    <Bar dataKey="collected" name="Collected" fill="#4f46e5" radius={[4, 4, 0, 0]} barSize={28} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
@@ -281,6 +341,7 @@ export default function BranchDetails() {
             <Card className="glass-card">
               <CardHeader>
                 <CardTitle className="text-base font-bold">Sport Distribution</CardTitle>
+                <CardDescription>{activeSportsCount} active sport{activeSportsCount === 1 ? '' : 's'} at this branch.</CardDescription>
               </CardHeader>
               <CardContent className="h-[200px]">
                 <ResponsiveContainer width="100%" height="100%">
