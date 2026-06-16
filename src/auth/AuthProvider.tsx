@@ -90,6 +90,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       if (!isMountedRef.current) return;
       setSession(nextSession);
+      setLoading(true);
       loadRole(nextSession).finally(() => {
         if (isMountedRef.current) setLoading(false);
       });
