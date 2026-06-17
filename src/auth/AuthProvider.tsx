@@ -87,9 +87,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     });
 
-    const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!isMountedRef.current) return;
       setSession(nextSession);
+
+      // INITIAL_SESSION is already handled by the getSession() call above.
+      // TOKEN_REFRESHED only rotates the JWT for the same user/role — Supabase
+      // fires it whenever the tab regains focus, so setting loading:true here
+      // causes the entire page to unmount and show a spinner on every tab switch.
+      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return;
+
       setLoading(true);
       loadRole(nextSession).finally(() => {
         if (isMountedRef.current) setLoading(false);

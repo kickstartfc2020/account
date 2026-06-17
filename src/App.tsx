@@ -77,6 +77,7 @@ function AppLayout() {
               <Route path="/super-admin/users" element={<UserManagement />} />
               <Route path="/super-admin/club" element={<ClubDetails />} />
               <Route path="/super-admin/invoices" element={<InvoicesOverview />} />
+              <Route path="/super-admin/invoices/view/:id" element={<ViewInvoice />} />
               <Route path="/super-admin/branch/:id" element={<BranchDetails />} />
             </Route>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { 
   ArrowLeft, 
   Printer, 
@@ -66,6 +66,8 @@ export default function ViewInvoice() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const isSuperAdminContext = pathname.startsWith('/super-admin');
   const { data: invoices, loading: invoicesLoading } = useInvoices();
   const { data: students } = useStudents();
   const { data: locations } = useLocations();
@@ -287,7 +289,7 @@ export default function ViewInvoice() {
         <p className="text-slate-500 max-w-sm">
           The invoice with ID <span className="font-bold text-slate-700">{id}</span> could not be located in our records.
         </p>
-        <Button onClick={() => navigate('/invoices')} className="bg-indigo-600">
+        <Button onClick={() => navigate(isSuperAdminContext ? '/super-admin/invoices' : '/invoices')} className="bg-indigo-600">
           <ArrowLeft className="w-4 h-4 mr-2" />
           Back to Invoices
         </Button>

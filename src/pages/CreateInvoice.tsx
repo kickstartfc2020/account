@@ -90,6 +90,7 @@ export default function CreateInvoice() {
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
+  const [invoiceDate, setInvoiceDate] = React.useState<string>(() => new Date().toISOString().slice(0, 10));
   const [manualItems, setManualItems] = React.useState<DraftManualItem[]>([
     { id: crypto.randomUUID(), description: 'Manual invoice item', quantity: '1', unitPrice: '' },
   ]);
@@ -473,6 +474,7 @@ export default function CreateInvoice() {
         paymentModeLabel: paymentMode,
         manualItems: isManualMode ? validManualItems : undefined,
         preferredBranchId: studentForWrite.locationId,
+        invoiceDate,
         requestKey: submitRequestKeyRef.current,
       });
 
@@ -814,6 +816,16 @@ export default function CreateInvoice() {
                 </div>
               )}
 
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Invoice Date</label>
+                <Input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(e) => { setInvoiceDate(e.target.value); setIsGenerated(false); }}
+                  className="bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime"
+                />
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Payment Context</label>
@@ -1023,7 +1035,7 @@ export default function CreateInvoice() {
                     </div>
                     <div className="flex flex-col">
                       <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Date Issued</span>
-                      <span className="text-xs font-bold text-gray-900">{formatDateDMY(new Date())}</span>
+                      <span className="text-xs font-bold text-gray-900">{formatDateDMY(invoiceDate)}</span>
                     </div>
                   </div>
                 </div>
