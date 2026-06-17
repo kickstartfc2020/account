@@ -1,13 +1,12 @@
 import React from 'react';
 import { motion } from 'motion/react';
 import { 
-  Building2, 
-  Users, 
-  MapPin, 
-  TrendingUp, 
-  Plus, 
+  Building2,
+  Users,
+  MapPin,
+  TrendingUp,
+  Plus,
   Search,
-  MoreVertical,
   ShieldCheck,
   CalendarDays,
   Mail
@@ -215,7 +214,9 @@ export default function AccountsDashboard() {
       });
     }
 
-    const totalRevenue = filteredInvoices.reduce((acc, inv) => acc + inv.total, 0);
+    const totalRevenue = filteredInvoices
+      .filter((inv) => inv.status !== 'cancelled')
+      .reduce((acc, inv) => acc + inv.total, 0);
 
     return [
       { label: 'Total Branches', value: allLocations.length.toString(), icon: Building2, color: 'text-indigo-600', bg: 'bg-indigo-50' },
@@ -419,7 +420,7 @@ export default function AccountsDashboard() {
                 )}
                 <div className="absolute top-4 right-4 flex gap-2">
                   <Badge className="bg-white/90 text-gray-900 backdrop-blur-sm border-none shadow-sm capitalize">
-                    {getRegionName(location)}
+                    {getRegionName(location) === 'unknown' ? location.name : getRegionName(location)}
                   </Badge>
                 </div>
               </div>
@@ -430,13 +431,12 @@ export default function AccountsDashboard() {
                     <p className="text-sm text-gray-500">{location.address}</p>
                   </div>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-gray-400"
-                    title="View full branch details"
+                    variant="outline"
+                    size="sm"
+                    className="text-xs font-semibold text-indigo-600 border-indigo-200 hover:bg-indigo-50"
                     onClick={() => navigate(`/super-admin/branch/${location.id}`)}
                   >
-                    <MoreVertical className="w-4 h-4" />
+                    Open
                   </Button>
                 </div>
                 
