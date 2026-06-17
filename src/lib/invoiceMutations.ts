@@ -14,7 +14,7 @@ export async function cancelInvoice(invoiceNumber: string) {
     reportOperationalError('rpc.invoice.cancel', 'cancel_invoice_safe RPC failed.', error, {
       invoiceNumber,
     });
-    throw error;
+    throw new Error((error as any).message || 'Failed to cancel invoice.');
   }
 
   if (!data) {

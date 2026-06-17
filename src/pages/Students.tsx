@@ -634,7 +634,7 @@ export default function Students() {
                           {selectedPackage ? selectedPackage.name : undefined}
                         </SelectValue>
                       </SelectTrigger>
-                      <SelectContent className="rounded-xl">
+                      <SelectContent className="rounded-xl max-h-[280px]">
                         {packageOptionsForSelection.map(p => (
                           <SelectItem key={p.id} value={p.id}>{selectedExistingStudent ? `${p.sportName} - ${p.name}` : p.name}</SelectItem>
                         ))}

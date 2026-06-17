@@ -382,7 +382,7 @@ export default function InvoicesOverview() {
               </TableRow>
             ) : (
               paginatedInvoices.map((invoice) => (
-                <TableRow key={invoice.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/invoices/view/${invoice.id}`)}>
+                <TableRow key={invoice.id} className="cursor-pointer hover:bg-slate-50" onClick={() => navigate(`/super-admin/invoices/view/${invoice.id}`)}>
                   <TableCell className="font-bold text-slate-900">{invoice.id}</TableCell>
                   <TableCell>{formatDateDMY(invoice.date)}</TableCell>
                   <TableCell className="font-medium text-indigo-700">{invoice.studentName}</TableCell>
@@ -409,7 +409,7 @@ export default function InvoicesOverview() {
                       className="h-8 w-8 text-slate-400 hover:text-indigo-600"
                       onClick={(event) => {
                         event.stopPropagation();
-                        navigate(`/invoices/view/${invoice.id}`);
+                        navigate(`/super-admin/invoices/view/${invoice.id}`);
                       }}
                     >
                       <Eye className="w-4 h-4" />
