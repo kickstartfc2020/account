@@ -301,10 +301,10 @@ export default function ViewInvoice() {
   const location = locations.find(l => l.name === invoice.locationName) || locations[0];
   const isManualInvoice = Boolean(invoice.manualCustomerName);
   const billToSecondary = isManualInvoice
-    ? (invoice.manualCustomerEmail || '—')
+    ? (invoice.manualCustomerEmail || null)
     : `Student ID: ${invoice.studentRefId || invoice.studentId}`;
   const billToTertiary = isManualInvoice
-    ? (invoice.manualCustomerPhone || '—')
+    ? (invoice.manualCustomerPhone || null)
     : invoice.locationName;
   const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
   const displayItems = (invoice.invoiceItems && invoice.invoiceItems.length > 0)
@@ -587,12 +587,12 @@ export default function ViewInvoice() {
                 <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
                   <div className="absolute top-0 right-0 w-24 h-24 bg-[#D4FF00]/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
                   <p className="text-lg font-bold text-gray-900 leading-tight">{billToName}</p>
-                  <p className="text-sm font-medium text-gray-500">{billToSecondary}</p>
-                  <p className="text-sm font-medium text-gray-500">{billToTertiary}</p>
-                  {isManualInvoice && (
+                  {billToSecondary && <p className="text-sm font-medium text-gray-500">{billToSecondary}</p>}
+                  {billToTertiary && <p className="text-sm font-medium text-gray-500">{billToTertiary}</p>}
+                  {isManualInvoice && (invoice.manualCustomerGst || invoice.manualCustomerPan) && (
                     <div className="pt-2 space-y-1">
-                      <p className="text-xs text-gray-500">GST: {invoice.manualCustomerGst || '—'}</p>
-                      <p className="text-xs text-gray-500">PAN: {invoice.manualCustomerPan || '—'}</p>
+                      {invoice.manualCustomerGst && <p className="text-xs text-gray-500">GST: {invoice.manualCustomerGst}</p>}
+                      {invoice.manualCustomerPan && <p className="text-xs text-gray-500">PAN: {invoice.manualCustomerPan}</p>}
                     </div>
                   )}
                   <div className="pt-2">

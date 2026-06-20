@@ -1068,12 +1068,14 @@ export default function CreateInvoice() {
                     <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
                       <div className="absolute top-0 right-0 w-24 h-24 bg-kickstart-lime/5 rounded-full -mr-12 -mt-12 transition-transform group-hover:scale-110" />
                       <p className="text-lg font-bold text-gray-900 leading-tight">{manualCustomerName || '—'}</p>
-                      <p className="text-sm font-medium text-gray-500">{manualCustomerEmail || '—'}</p>
-                      <p className="text-sm font-medium text-gray-500">{manualCustomerPhone || '—'}</p>
-                      <div className="pt-2 space-y-1">
-                        <p className="text-xs text-gray-500">GST: {manualCustomerGst || '—'}</p>
-                        <p className="text-xs text-gray-500">PAN: {manualCustomerPan || '—'}</p>
-                      </div>
+                      {manualCustomerEmail.trim() && <p className="text-sm font-medium text-gray-500">{manualCustomerEmail}</p>}
+                      {manualCustomerPhone.trim() && <p className="text-sm font-medium text-gray-500">{manualCustomerPhone}</p>}
+                      {(manualCustomerGst.trim() || manualCustomerPan.trim()) && (
+                        <div className="pt-2 space-y-1">
+                          {manualCustomerGst.trim() && <p className="text-xs text-gray-500">GST: {manualCustomerGst}</p>}
+                          {manualCustomerPan.trim() && <p className="text-xs text-gray-500">PAN: {manualCustomerPan}</p>}
+                        </div>
+                      )}
                     </div>
                   ) : selectedStudent ? (
                     <div className="p-6 rounded-2xl bg-gray-50/50 border border-gray-100 space-y-1 relative overflow-hidden group">
