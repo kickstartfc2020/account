@@ -1,6 +1,6 @@
 export type ManualInvoiceBillTo = {
   name: string;
-  email: string;
+  email?: string;
   phone?: string;
   gst?: string;
   pan?: string;
@@ -37,13 +37,13 @@ export function parseManualInvoiceNotes(notes: unknown): ManualInvoiceBillTo | n
     const gst = (parsed.billTo.gst ?? '').trim();
     const pan = (parsed.billTo.pan ?? '').trim();
 
-    if (!name || !email) {
+    if (!name) {
       return null;
     }
 
     return {
       name,
-      email,
+      email: email || undefined,
       phone: phone || undefined,
       gst,
       pan,

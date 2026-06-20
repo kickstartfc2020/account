@@ -254,13 +254,10 @@ export default function CreateInvoice() {
       return;
     }
 
-    const nextManualErrors: { name?: string; email?: string; manualItems?: string } = {};
+    const nextManualErrors: { name?: string; manualItems?: string } = {};
 
     if (isManualMode && !manualCustomerName.trim()) {
       nextManualErrors.name = 'Name is required.';
-    }
-    if (isManualMode && !manualCustomerEmail.trim()) {
-      nextManualErrors.email = 'Email is required.';
     }
     if (isManualMode && manualSubtotal <= 0) {
       nextManualErrors.manualItems = 'At least one item must have description, quantity, and rate greater than 0.';
@@ -270,8 +267,8 @@ export default function CreateInvoice() {
       setManualFieldErrors(nextManualErrors);
     }
 
-    if (isManualMode && (!manualCustomerName.trim() || !manualCustomerEmail.trim())) {
-      toast.error('Name and email are required for manual invoices.');
+    if (isManualMode && !manualCustomerName.trim()) {
+      toast.error('Name is required for manual invoices.');
       return;
     }
 
@@ -600,9 +597,8 @@ export default function CreateInvoice() {
                   {manualFieldErrors.name && <p className="text-[11px] text-red-500">{manualFieldErrors.name}</p>}
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-gray-500">Email <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
-                  <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setManualFieldErrors((prev) => ({ ...prev, email: undefined })); setIsGenerated(false); }} placeholder="customer@email.com" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.email && "border-red-400 focus:ring-red-400")} />
-                  {manualFieldErrors.email && <p className="text-[11px] text-red-500">{manualFieldErrors.email}</p>}
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Email (Optional)</label>
+                  <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setIsGenerated(false); }} placeholder="customer@email.com" className="h-11 border-gray-200 focus:ring-indigo-500" />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-gray-500">Number (Optional)</label>
