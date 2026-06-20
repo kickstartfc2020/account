@@ -528,7 +528,7 @@ export default function CreateInvoice() {
   };
 
   const finalizeDisabled = isManualMode
-    ? isSaving || !manualCustomerName.trim() || !manualCustomerEmail.trim() || manualSubtotal <= 0
+    ? isSaving || !manualCustomerName.trim() || manualSubtotal <= 0
     : isSaving || !selectedStudentForWrite || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0;
 
   return (
