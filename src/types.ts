@@ -12,6 +12,7 @@ export interface ManualInvoiceItem {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  gstPercent?: number;
 }
 
 export interface Location {
