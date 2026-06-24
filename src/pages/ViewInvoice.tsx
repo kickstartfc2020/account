@@ -58,6 +58,7 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
       quantity: Number(item.quantity ?? 0),
       unitPrice: Number(item.unit_price ?? 0),
       lineTotal: Number(item.line_total ?? 0),
+      gstPercent: item.gst_percent != null ? Number(item.gst_percent) : undefined,
     })),
   };
 }
@@ -100,7 +101,7 @@ export default function ViewInvoice() {
       try {
         const { data, error } = await (supabase as any)
           .from('invoices')
-          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id, email), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total)')
+          .select('id, invoice_number, student_id, branch_id, invoice_date, status, subtotal, tax_total, discount_total, total_amount, balance_amount, notes, students(name, ref_id, email), branches(name), payments(method, status), invoice_items(description, quantity, unit_price, line_total, gst_percent)')
           .eq('invoice_number', id)
           .maybeSingle();
 
@@ -306,7 +307,7 @@ export default function ViewInvoice() {
   const billToTertiary = isManualInvoice
     ? (invoice.manualCustomerPhone || null)
     : invoice.locationName;
-  const gstPercentDisplay = invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0;
+  const gstPercentDisplay = invoice.invoiceItems?.[0]?.gstPercent ?? (invoice.amount > 0 ? Math.round((invoice.tax / invoice.amount) * 100) : 0);
   const displayItems = (invoice.invoiceItems && invoice.invoiceItems.length > 0)
     ? invoice.invoiceItems
     : [{ description: invoice.packageName || 'Invoice Item', quantity: 1, unitPrice: invoice.amount, lineTotal: invoice.amount }];
@@ -698,7 +699,7 @@ export default function ViewInvoice() {
                       <span className="text-[9px] font-bold text-[#D4FF00] uppercase tracking-[0.2em] leading-none">Total Payable</span>
                       <h4 className="text-xl font-display font-bold text-[#1A3C34] leading-none">Grand Total</h4>
                     </div>
-                    <span className="text-xl font-display font-bold text-[#1A3C34] tracking-tight">₹{invoice.total.toLocaleString()}</span>
+                    <span className="text-xl font-display font-bold text-[#1A3C34] tracking-tight">₹{(invoice.amount + invoice.tax).toLocaleString()}</span>
                   </div>
                 </div>
               </div>
