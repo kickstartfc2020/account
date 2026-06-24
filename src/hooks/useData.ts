@@ -394,10 +394,6 @@ export function useInvoices() {
     loadInvoices();
 
     const refreshListener = () => loadInvoices();
-    const focusListener = () => loadInvoices();
-    const visibilityListener = () => {
-      if (document.visibilityState === 'visible') loadInvoices();
-    };
     const storageListener = (event: StorageEvent) => {
       if (event.key === storageEventName) {
         loadInvoices();
@@ -405,14 +401,10 @@ export function useInvoices() {
     };
 
     window.addEventListener(storageEventName, refreshListener);
-    window.addEventListener('focus', focusListener);
-    document.addEventListener('visibilitychange', visibilityListener);
     window.addEventListener('storage', storageListener);
 
     return () => {
       window.removeEventListener(storageEventName, refreshListener);
-      window.removeEventListener('focus', focusListener);
-      document.removeEventListener('visibilitychange', visibilityListener);
       window.removeEventListener('storage', storageListener);
     };
   }, []);
