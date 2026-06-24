@@ -1178,10 +1178,16 @@ export default function CreateInvoice() {
                       <span className="font-bold text-gray-900 text-right">₹{subtotal.toLocaleString()}</span>
                     </div>
                     {discountAmount > 0 && (
-                      <div className="flex justify-between text-sm">
-                        <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
-                        <span className="font-bold text-emerald-600 text-right">- ₹{discountAmount.toLocaleString()}</span>
-                      </div>
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
+                          <span className="font-bold text-emerald-600 text-right">- ₹{discountAmount.toLocaleString()}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">After Discount</span>
+                          <span className="font-bold text-gray-900 text-right">₹{taxableAmount.toLocaleString()}</span>
+                        </div>
+                      </>
                     )}
                     <div className="flex justify-between text-sm items-center">
                       <div className="flex flex-col">
