@@ -95,6 +95,12 @@ export type FinancialYearResetResult = {
   audit_log_id: number;
 };
 
+function toError(raw: unknown, fallback: string): Error {
+  if (raw instanceof Error) return raw;
+  const msg = (raw as any)?.message ?? (raw as any)?.error_description ?? fallback;
+  return new Error(typeof msg === 'string' && msg ? msg : fallback);
+}
+
 export async function getFinancialYearResetPreview(organizationId?: string | null) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured.');
@@ -105,7 +111,7 @@ export async function getFinancialYearResetPreview(organizationId?: string | nul
   });
 
   if (error) {
-    throw error;
+    throw toError(error, 'Failed to load financial year reset preview.');
   }
 
   const row = (Array.isArray(data) ? data[0] : data) as FinancialYearResetPreview | undefined;
@@ -132,7 +138,7 @@ export async function resetFinancialYearForOrganization(
   });
 
   if (error) {
-    throw error;
+    throw toError(error, 'Failed to reset financial year data.');
   }
 
   if (typeof window !== 'undefined') {
