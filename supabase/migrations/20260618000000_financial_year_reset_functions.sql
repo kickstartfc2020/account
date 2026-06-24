@@ -1,5 +1,5 @@
 -- Migration: Add financial year reset RPC functions
--- Called by the Settings page financial year reset button.
+-- Called by Settings (org-scoped) and super-admin InvoicesOverview (global, org_id = NULL).
 
 CREATE OR REPLACE FUNCTION public.get_financial_year_reset_preview(
   p_organization_id uuid DEFAULT NULL
@@ -18,15 +18,24 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_org_id uuid;
-  v_today date := CURRENT_DATE;
+  v_role    public.app_role;
+  v_org_id  uuid;
+  v_global  boolean := false;
+  v_today   date := CURRENT_DATE;
   v_fy_year int;
   v_fy_start date;
-  v_fy_end date;
+  v_fy_end   date;
 BEGIN
+  v_role   := public.current_role();
   v_org_id := COALESCE(p_organization_id, public.current_organization_id());
+
+  -- Super admin calling with no org_id = global preview across all orgs.
   IF v_org_id IS NULL THEN
-    RAISE EXCEPTION 'Organization context is required.';
+    IF v_role = 'super_admin' THEN
+      v_global := true;
+    ELSE
+      RAISE EXCEPTION 'Organization context is required.';
+    END IF;
   END IF;
 
   -- India FY: April 1 – March 31
@@ -39,14 +48,25 @@ BEGIN
   v_fy_start := make_date(v_fy_year, 4, 1);
   v_fy_end   := make_date(v_fy_year + 1, 3, 31);
 
-  RETURN QUERY SELECT
-    (v_fy_year::text || '-' || LPAD(((v_fy_year + 1) % 100)::text, 2, '0'))::text,
-    v_fy_start,
-    v_fy_end,
-    (SELECT COUNT(*)::int FROM public.invoices       WHERE organization_id = v_org_id),
-    (SELECT COUNT(*)::int FROM public.invoice_items  WHERE organization_id = v_org_id),
-    (SELECT COUNT(*)::int FROM public.payments        WHERE organization_id = v_org_id),
-    (SELECT COUNT(*)::int FROM public.renewals        WHERE organization_id = v_org_id);
+  IF v_global THEN
+    RETURN QUERY SELECT
+      (v_fy_year::text || '-' || LPAD(((v_fy_year + 1) % 100)::text, 2, '0'))::text,
+      v_fy_start,
+      v_fy_end,
+      (SELECT COUNT(*)::int FROM public.invoices),
+      (SELECT COUNT(*)::int FROM public.invoice_items),
+      (SELECT COUNT(*)::int FROM public.payments),
+      (SELECT COUNT(*)::int FROM public.renewals);
+  ELSE
+    RETURN QUERY SELECT
+      (v_fy_year::text || '-' || LPAD(((v_fy_year + 1) % 100)::text, 2, '0'))::text,
+      v_fy_start,
+      v_fy_end,
+      (SELECT COUNT(*)::int FROM public.invoices      WHERE organization_id = v_org_id),
+      (SELECT COUNT(*)::int FROM public.invoice_items WHERE organization_id = v_org_id),
+      (SELECT COUNT(*)::int FROM public.payments       WHERE organization_id = v_org_id),
+      (SELECT COUNT(*)::int FROM public.renewals       WHERE organization_id = v_org_id);
+  END IF;
 END;
 $$;
 
@@ -73,17 +93,19 @@ SECURITY DEFINER
 SET search_path TO 'public'
 AS $$
 DECLARE
-  v_role        public.app_role;
-  v_org_id      uuid;
+  v_role          public.app_role;
+  v_org_id        uuid;
+  v_global        boolean := false;
   v_del_invoices  integer := 0;
   v_del_items     integer := 0;
   v_del_payments  integer := 0;
   v_del_renewals  integer := 0;
-  v_today       date := CURRENT_DATE;
-  v_fy_year     int;
-  v_fy_label    text;
+  v_today         date := CURRENT_DATE;
+  v_fy_year       int;
+  v_fy_label      text;
 BEGIN
   v_role := public.current_role();
+
   IF v_role NOT IN ('super_admin', 'organization_admin') THEN
     RAISE EXCEPTION 'Only organization administrators can reset invoices.';
   END IF;
@@ -93,11 +115,18 @@ BEGIN
   END IF;
 
   v_org_id := COALESCE(p_organization_id, public.current_organization_id());
+
+  -- Super admin with no org_id = global reset across all orgs.
   IF v_org_id IS NULL THEN
-    RAISE EXCEPTION 'Organization context is required for invoice reset.';
+    IF v_role = 'super_admin' THEN
+      v_global := true;
+    ELSE
+      RAISE EXCEPTION 'Organization context is required for invoice reset.';
+    END IF;
   END IF;
 
-  IF v_role = 'organization_admin' AND public.current_organization_id() IS DISTINCT FROM v_org_id THEN
+  IF NOT v_global AND v_role = 'organization_admin'
+     AND public.current_organization_id() IS DISTINCT FROM v_org_id THEN
     RAISE EXCEPTION 'You can only reset invoices for your active organization.';
   END IF;
 
@@ -109,45 +138,68 @@ BEGIN
   END IF;
   v_fy_label := v_fy_year::text || '-' || LPAD(((v_fy_year + 1) % 100)::text, 2, '0');
 
-  -- Allow hard deletes for the duration of this transaction
+  -- Bypass prevent_hard_delete triggers for this transaction
   PERFORM set_config('app.allow_hard_delete', 'on', true);
-  -- Prevent concurrent resets for the same org
-  PERFORM pg_advisory_xact_lock(hashtextextended(v_org_id::text || ':invoice_reset', 0));
+  -- Advisory lock: global lock for global reset, per-org lock otherwise
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended(COALESCE(v_org_id::text, 'global') || ':invoice_reset', 0)
+  );
 
-  -- Null out renewal FK references before deleting invoices
-  UPDATE public.renewals
-  SET source_invoice_id   = NULL,
-      generated_invoice_id = NULL
-  WHERE organization_id = v_org_id
-    AND (source_invoice_id IS NOT NULL OR generated_invoice_id IS NOT NULL);
-  GET DIAGNOSTICS v_del_renewals = ROW_COUNT;
+  IF v_global THEN
+    -- Global reset: operate across all organizations
+    UPDATE public.renewals
+    SET source_invoice_id    = NULL,
+        generated_invoice_id = NULL
+    WHERE source_invoice_id IS NOT NULL OR generated_invoice_id IS NOT NULL;
+    GET DIAGNOSTICS v_del_renewals = ROW_COUNT;
 
-  -- Clear any pending write requests
-  DELETE FROM public.invoice_write_requests
-  WHERE organization_id = v_org_id;
+    DELETE FROM public.invoice_write_requests;
 
-  -- Delete payments
-  DELETE FROM public.payments
-  WHERE organization_id = v_org_id;
-  GET DIAGNOSTICS v_del_payments = ROW_COUNT;
+    DELETE FROM public.payments;
+    GET DIAGNOSTICS v_del_payments = ROW_COUNT;
 
-  -- Delete invoice line items
-  DELETE FROM public.invoice_items
-  WHERE organization_id = v_org_id;
-  GET DIAGNOSTICS v_del_items = ROW_COUNT;
+    DELETE FROM public.invoice_items;
+    GET DIAGNOSTICS v_del_items = ROW_COUNT;
 
-  -- Delete invoices
-  DELETE FROM public.invoices
-  WHERE organization_id = v_org_id;
-  GET DIAGNOSTICS v_del_invoices = ROW_COUNT;
+    DELETE FROM public.invoices;
+    GET DIAGNOSTICS v_del_invoices = ROW_COUNT;
 
-  -- Reset invoice number counters so numbering restarts from 1
-  DELETE FROM public.ref_counters
-  WHERE counter_key = 'invoice:' || v_org_id::text
-     OR counter_key LIKE 'invoice:' || v_org_id::text || ':%';
+    DELETE FROM public.ref_counters
+    WHERE counter_key LIKE 'invoice:%';
 
-  DELETE FROM public.organization_invoice_counters
-  WHERE organization_id = v_org_id;
+    DELETE FROM public.organization_invoice_counters;
+
+  ELSE
+    -- Org-scoped reset
+    UPDATE public.renewals
+    SET source_invoice_id    = NULL,
+        generated_invoice_id = NULL
+    WHERE organization_id = v_org_id
+      AND (source_invoice_id IS NOT NULL OR generated_invoice_id IS NOT NULL);
+    GET DIAGNOSTICS v_del_renewals = ROW_COUNT;
+
+    DELETE FROM public.invoice_write_requests
+    WHERE organization_id = v_org_id;
+
+    DELETE FROM public.payments
+    WHERE organization_id = v_org_id;
+    GET DIAGNOSTICS v_del_payments = ROW_COUNT;
+
+    DELETE FROM public.invoice_items
+    WHERE organization_id = v_org_id;
+    GET DIAGNOSTICS v_del_items = ROW_COUNT;
+
+    DELETE FROM public.invoices
+    WHERE organization_id = v_org_id;
+    GET DIAGNOSTICS v_del_invoices = ROW_COUNT;
+
+    DELETE FROM public.ref_counters
+    WHERE counter_key = 'invoice:' || v_org_id::text
+       OR counter_key LIKE 'invoice:' || v_org_id::text || ':%';
+
+    DELETE FROM public.organization_invoice_counters
+    WHERE organization_id = v_org_id;
+  END IF;
 
   RETURN QUERY SELECT
     v_fy_label,
@@ -155,8 +207,8 @@ BEGIN
     v_del_items,
     v_del_payments,
     v_del_renewals,
-    0::bigint,   -- backup_id (no dedicated backup table)
-    0::bigint;   -- audit_log_id
+    0::bigint,
+    0::bigint;
 END;
 $$;
 
