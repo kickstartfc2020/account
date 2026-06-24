@@ -153,21 +153,21 @@ BEGIN
     WHERE source_invoice_id IS NOT NULL OR generated_invoice_id IS NOT NULL;
     GET DIAGNOSTICS v_del_renewals = ROW_COUNT;
 
-    DELETE FROM public.invoice_write_requests;
+    DELETE FROM public.invoice_write_requests WHERE true;
 
-    DELETE FROM public.payments;
+    DELETE FROM public.payments WHERE true;
     GET DIAGNOSTICS v_del_payments = ROW_COUNT;
 
-    DELETE FROM public.invoice_items;
+    DELETE FROM public.invoice_items WHERE true;
     GET DIAGNOSTICS v_del_items = ROW_COUNT;
 
-    DELETE FROM public.invoices;
+    DELETE FROM public.invoices WHERE true;
     GET DIAGNOSTICS v_del_invoices = ROW_COUNT;
 
     DELETE FROM public.ref_counters
     WHERE counter_key LIKE 'invoice:%';
 
-    DELETE FROM public.organization_invoice_counters;
+    DELETE FROM public.organization_invoice_counters WHERE true;
 
   ELSE
     -- Org-scoped reset
