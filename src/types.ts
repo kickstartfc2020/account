@@ -81,6 +81,7 @@ export interface Invoice {
   manualCustomerGst?: string;
   manualCustomerPan?: string;
   amount: number;
+  discountAmount: number;
   tax: number;
   total: number;
   status: 'draft' | 'unpaid' | 'partial' | 'completed' | 'cancelled';

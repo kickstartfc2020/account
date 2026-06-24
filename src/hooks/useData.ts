@@ -367,6 +367,7 @@ export function useInvoices() {
                   manualCustomerGst: manualBillTo?.gst,
                   manualCustomerPan: manualBillTo?.pan,
                   amount: inv.subtotal as number,
+                  discountAmount: (inv.discount_total as number) ?? 0,
                   tax: inv.tax_total as number,
                   total: inv.total_amount as number,
                   status: (inv.status as Invoice['status']) ?? 'unpaid',
