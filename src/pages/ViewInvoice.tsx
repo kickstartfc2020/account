@@ -676,7 +676,7 @@ export default function ViewInvoice() {
                     </p>
                   </div>
                   <div className="col-span-4 text-right font-black text-gray-900 text-base">
-                    ₹{item.lineTotal.toLocaleString()}
+                    ₹{(item.quantity * item.unitPrice).toLocaleString()}
                   </div>
                 </div>
               ))}
