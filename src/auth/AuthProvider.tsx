@@ -91,16 +91,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!isMountedRef.current) return;
       setSession(nextSession);
 
-      // INITIAL_SESSION is already handled by the getSession() call above.
-      // TOKEN_REFRESHED only rotates the JWT for the same user/role — Supabase
-      // fires it whenever the tab regains focus, so setting loading:true here
-      // causes the entire page to unmount and show a spinner on every tab switch.
-      if (event === 'INITIAL_SESSION' || event === 'TOKEN_REFRESHED') return;
-
-      setLoading(true);
-      loadRole(nextSession).finally(() => {
-        if (isMountedRef.current) setLoading(false);
-      });
+      // INITIAL_SESSION is handled by getSession() above.
+      // TOKEN_REFRESHED, SIGNED_IN (session restore on tab focus) and similar
+      // events must NOT set loading=true — that unmounts the entire app and
+      // shows a spinner every time the user switches browser tabs.
+      // Re-resolve the role silently so the UI never flickers.
+      if (event === 'INITIAL_SESSION') return;
+      if (event === 'SIGNED_OUT') {
+        setRole(null);
+        return;
+      }
+      // For all other events (TOKEN_REFRESHED, SIGNED_IN, USER_UPDATED, etc.)
+      // refresh the role in the background without touching the loading flag.
+      void loadRole(nextSession);
     });
 
     return () => {
