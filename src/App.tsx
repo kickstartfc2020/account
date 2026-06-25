@@ -33,6 +33,7 @@ const UserManagement = React.lazy(() => import('./pages/super-admin/UserManageme
 const ClubDetails = React.lazy(() => import('./pages/super-admin/ClubDetails'));
 const BranchDetails = React.lazy(() => import('./pages/super-admin/BranchDetails'));
 const InvoicesOverview = React.lazy(() => import('./pages/super-admin/InvoicesOverview'));
+const SuperAdminReports = React.lazy(() => import('./pages/super-admin/SuperAdminReports'));
 const CreateInvoice = React.lazy(() => import('./pages/CreateInvoice'));
 const ViewInvoice = React.lazy(() => import('./pages/ViewInvoice'));
 const HealthConfig = React.lazy(() => import('./pages/HealthConfig'));
@@ -79,6 +80,7 @@ function AppLayout() {
               <Route path="/super-admin/invoices" element={<InvoicesOverview />} />
               <Route path="/super-admin/invoices/view/:id" element={<ViewInvoice />} />
               <Route path="/super-admin/branch/:id" element={<BranchDetails />} />
+              <Route path="/super-admin/reports" element={<SuperAdminReports />} />
             </Route>
 
             <Route path="*" element={<RoleHomeRedirect />} />

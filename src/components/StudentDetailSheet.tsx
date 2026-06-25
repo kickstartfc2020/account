@@ -26,11 +26,13 @@ import { formatDateDMY } from '@/lib/utils';
 
 interface StudentDetailSheetProps {
   student: Student;
-  children: React.ReactNode;
+  children?: React.ReactNode;
   studentEnrollments?: StudentEnrollment[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
-export function StudentDetailSheet({ student, children, studentEnrollments = [] }: StudentDetailSheetProps) {
+export function StudentDetailSheet({ student, children, studentEnrollments = [], open, onOpenChange }: StudentDetailSheetProps) {
   const navigate = useNavigate();
   const [view, setView] = React.useState<'details' | 'history'>('details');
   const { data: allInvoices } = useInvoices();
@@ -110,6 +112,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
       nextRenewalLabel: string;
       showNextRenewal: boolean;
       paidTillNow: number;
+      totalDiscountGiven: number;
       amountPending: number;
     }> = [];
 
@@ -131,11 +134,11 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
         invoice.packageName === enrollment.packageName
       );
       const paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+      const totalDiscountGiven = matchingInvoices.reduce((sum, invoice) => sum + (invoice.discountAmount ?? 0), 0);
 
-      const expectedTotal = (() => {
-        if (!packageDetails) return 0;
-        return packageDetails.price + (packageDetails.price * packageDetails.taxPercent) / 100;
-      })();
+      // Package prices are GST-inclusive — no need to add tax on top.
+      // Pending = package price − what was actually paid − what was discounted (forgiven).
+      const packagePrice = packageDetails?.price ?? 0;
 
       summaries.push({
         sportName,
@@ -146,7 +149,8 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
         nextRenewalLabel,
         showNextRenewal,
         paidTillNow,
-        amountPending: Math.max(expectedTotal - paidTillNow, 0),
+        totalDiscountGiven,
+        amountPending: Math.max(packagePrice - paidTillNow - totalDiscountGiven, 0),
       });
     });
 
@@ -159,11 +163,17 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
     });
   }, [student.joinedAt, student.packageId, student.packageName, student.sportName, studentEnrollments, allPackages, activeStudentInvoices]);
 
+  const isControlled = open !== undefined;
+
   return (
-    <Sheet onOpenChange={(open) => !open && setView('details')}>
-      <SheetTrigger asChild>
-        {children}
-      </SheetTrigger>
+    <Sheet
+      open={isControlled ? open : undefined}
+      onOpenChange={(o) => {
+        if (!o) setView('details');
+        onOpenChange?.(o);
+      }}
+    >
+      {!isControlled && <SheetTrigger asChild>{children}</SheetTrigger>}
       <SheetContent className="w-[400px] sm:w-[540px] px-0">
         <SheetHeader className="px-8 pb-6 border-b flex-row justify-between items-center space-y-0">
           <div className="flex items-center gap-4">
@@ -261,6 +271,12 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [] 
                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Amount Pending</p>
                           <p className="text-base font-display font-bold text-rose-500 mt-1">₹{summary.amountPending.toLocaleString('en-IN')}</p>
                         </div>
+                        {summary.totalDiscountGiven > 0 && (
+                          <div className="col-span-2">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Discount Given</p>
+                            <p className="text-base font-display font-bold text-amber-600 mt-1">₹{summary.totalDiscountGiven.toLocaleString('en-IN')}</p>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
