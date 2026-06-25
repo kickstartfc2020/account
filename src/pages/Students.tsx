@@ -271,6 +271,8 @@ export default function Students() {
         await addStudentEnrollment({
           studentId: selectedExistingStudent.id,
           packageId: newStudent.packageId,
+          enrolledPrice: pkg?.price,
+          enrolledTaxPercent: pkg?.taxPercent,
         });
 
         setStudentRows((prev) => prev.map((student) => student.id === selectedExistingStudent.id ? {
@@ -307,6 +309,8 @@ export default function Students() {
           sportId: newStudent.sportId,
           packageId: newStudent.packageId,
           branchId: locations[0]?.id,
+          enrolledPrice: pkg?.price,
+          enrolledTaxPercent: pkg?.taxPercent,
         });
 
         const location = locations.find((item) => item.id === created.branch_id);

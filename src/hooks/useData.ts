@@ -263,7 +263,7 @@ export function useStudents() {
     supabase
       .from('students')
       .select(
-        'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
+        'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, enrolled_price, enrolled_tax_percent, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
       )
       .is('archived_at', null)
       .order('name')
@@ -305,6 +305,8 @@ export function useStudents() {
                 expiryDate: expiryDate ?? '',
                 status: computeStudentStatus(expiryDate, s.joined_at as string | null | undefined),
                 joinedAt: s.joined_at as string,
+                enrolledPrice: s.enrolled_price != null ? Number(s.enrolled_price) : undefined,
+                enrolledTaxPercent: s.enrolled_tax_percent != null ? Number(s.enrolled_tax_percent) : undefined,
               };
             });
           studentsCache = mapped;
@@ -487,7 +489,7 @@ export function useStudentEnrollments() {
         .order('student_id'),
       supabase
         .from('students')
-        .select('id, current_package_id, packages(name, amount, sports(name))')
+        .select('id, current_package_id, enrolled_price, packages(name, amount, sports(name))')
         .order('id'),
     ]).then(([renewalsResult, invoicesResult, studentsResult]) => {
       setLoading(false);
@@ -506,6 +508,15 @@ export function useStudentEnrollments() {
         reportOperationalError('query.student_enrollments', 'Failed to load student package enrollments.', studentsResult.error);
       }
 
+      // Build a map of studentId → enrolled_price so we use the price locked at
+      // enrollment time rather than the current (possibly updated) package amount.
+      const enrolledPriceMap = new Map<string, number>();
+      for (const s of (studentsResult.data ?? []) as any[]) {
+        if (s.enrolled_price != null) {
+          enrolledPriceMap.set(s.id as string, Number(s.enrolled_price));
+        }
+      }
+
       const enrollmentMap = new Map<string, StudentEnrollment>();
 
       const upsertEnrollment = (row: any, fallbackStatus: StudentEnrollment['status']) => {
@@ -514,12 +525,13 @@ export function useStudentEnrollments() {
 
         const pkg = row.packages as { name: string; amount: number; sports: { name: string } | null } | null;
         const key = `${row.student_id}:${packageId}:${pkg?.name ?? ''}`;
+        const enrolledPrice = enrolledPriceMap.get(row.student_id as string) ?? Number(pkg?.amount ?? 0);
         const nextEnrollment: StudentEnrollment = {
           studentId: row.student_id as string,
           packageId,
           packageName: pkg?.name ?? '',
           sportName: pkg?.sports?.name ?? '',
-          price: Number(pkg?.amount ?? 0),
+          price: enrolledPrice,
           status: ((row.status ?? fallbackStatus) as StudentEnrollment['status']),
         };
 
@@ -542,12 +554,13 @@ export function useStudentEnrollments() {
         invoiceItems.forEach((item) => {
           if (!item.package_id) return;
           const key = `${invoice.student_id}:${item.package_id}:${item.packages?.name ?? ''}`;
+          const enrolledPrice = enrolledPriceMap.get(invoice.student_id as string) ?? Number(item.packages?.amount ?? 0);
           const nextEnrollment: StudentEnrollment = {
             studentId: invoice.student_id as string,
             packageId: item.package_id,
             packageName: item.packages?.name ?? '',
             sportName: item.packages?.sports?.name ?? '',
-            price: Number(item.packages?.amount ?? 0),
+            price: enrolledPrice,
             status: invoice.status === 'completed' ? 'completed' : 'pending',
           };
 
@@ -566,12 +579,13 @@ export function useStudentEnrollments() {
         const key = `${student.id}:${packageId}:${pkg?.name ?? ''}`;
         if (enrollmentMap.has(key)) continue;
 
+        const enrolledPrice = enrolledPriceMap.get(student.id as string) ?? Number(pkg?.amount ?? 0);
         enrollmentMap.set(key, {
           studentId: student.id as string,
           packageId,
           packageName: pkg?.name ?? '',
           sportName: pkg?.sports?.name ?? '',
-          price: Number(pkg?.amount ?? 0),
+          price: enrolledPrice,
           status: 'pending',
         });
       }

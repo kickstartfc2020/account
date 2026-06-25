@@ -152,6 +152,8 @@ export async function createStudent(input: {
   sportId: string;
   packageId: string;
   branchId?: string | null;
+  enrolledPrice?: number;
+  enrolledTaxPercent?: number;
 }) {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
@@ -178,7 +180,20 @@ export async function createStudent(input: {
 
   if (error || !data) throw error ?? new Error('Failed to create student.');
 
-  return data as { id: string; branch_id: string; ref_id: string | null };
+  const created = data as { id: string; branch_id: string; ref_id: string | null };
+
+  // Best-effort: store enrolled price. Silently ignored if the migration hasn't run yet.
+  if (input.enrolledPrice != null) {
+    await studentsTable
+      .update({
+        enrolled_price: input.enrolledPrice,
+        enrolled_tax_percent: input.enrolledTaxPercent ?? 0,
+      })
+      .eq('id', created.id)
+      .then(() => {/* ignore */});
+  }
+
+  return created;
 }
 
 export async function updateStudent(input: {
@@ -210,6 +225,8 @@ export async function addStudentEnrollment(input: {
   packageId: string;
   branchId?: string | null;
   startDate?: string;
+  enrolledPrice?: number;
+  enrolledTaxPercent?: number;
 }) {
   if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
 
@@ -222,6 +239,17 @@ export async function addStudentEnrollment(input: {
   });
 
   if (error) throw error;
+
+  // Snapshot the enrolled price for the new package on the student record.
+  if (input.enrolledPrice != null) {
+    const studentsTable = supabase.from('students') as any;
+    await studentsTable
+      .update({
+        enrolled_price: input.enrolledPrice,
+        enrolled_tax_percent: input.enrolledTaxPercent ?? 0,
+      })
+      .eq('id', input.studentId);
+  }
 
   const row = Array.isArray(data) ? data[0] : data;
 
