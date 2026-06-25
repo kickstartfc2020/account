@@ -216,7 +216,8 @@ export default function CreateInvoice() {
       if (!student) return;
       const pkg = packages.find((p) => p.id === student.packageId);
       if (!pkg) return;
-      if ((totalInvoiced.get(studentId) ?? 0) < pkg.price) {
+      const enrolledPrice = student.enrolledPrice ?? pkg.price;
+      if ((totalInvoiced.get(studentId) ?? 0) < enrolledPrice) {
         map.set(studentId, 'pending');
       }
     });
@@ -256,14 +257,13 @@ export default function CreateInvoice() {
   const allowedBaseAmount = React.useMemo(() => {
     if (isManualMode) return Number.MAX_SAFE_INTEGER;
     if (!effectivePackage) return 0;
-    const packagePrice = effectivePackage.price;
-    // Outstanding balance on prior invoices takes priority
+    // Use the price locked at enrollment time, not the current (possibly changed) package price.
+    const packagePrice = selectedStudent?.enrolledPrice ?? effectivePackage.price;
     if (outstandingBalanceAmount > 0) {
       return Math.min(outstandingBalanceAmount, packagePrice);
     }
-    // Allow the difference between package price and what's already been invoiced
     return Math.max(0, packagePrice - totalInvoicedSubtotal);
-  }, [outstandingBalanceAmount, totalInvoicedSubtotal, effectivePackage, isManualMode]);
+  }, [outstandingBalanceAmount, totalInvoicedSubtotal, effectivePackage, isManualMode, selectedStudent]);
   // Derived for UI messaging only — not used as a gate
   const hasFullyPaidInvoice = !isManualMode && allowedBaseAmount === 0 && activeStudentInvoices.length > 0;
   const amountExceedsAllowedAmount = isManualMode ? false : parseFloat(amount || '0') > allowedBaseAmount;

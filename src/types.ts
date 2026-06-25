@@ -69,6 +69,8 @@ export interface Student {
   expiryDate: string;
   status: StudentStatus;
   joinedAt: string;
+  enrolledPrice?: number;
+  enrolledTaxPercent?: number;
 }
 
 export interface Invoice {

@@ -91,7 +91,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
     })();
 
     const fallbackEnrollments = student.packageId
-      ? [{ packageId: student.packageId, packageName: student.packageName, sportName: student.sportName }]
+      ? [{ packageId: student.packageId, packageName: student.packageName, sportName: student.sportName, price: student.enrolledPrice ?? 0 }]
       : [];
 
     const sourceEnrollments = studentEnrollments.length > 0 ? studentEnrollments : fallbackEnrollments;
@@ -136,9 +136,8 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
       const paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
       const totalDiscountGiven = matchingInvoices.reduce((sum, invoice) => sum + (invoice.discountAmount ?? 0), 0);
 
-      // Package prices are GST-inclusive — no need to add tax on top.
-      // Pending = package price − what was actually paid − what was discounted (forgiven).
-      const packagePrice = packageDetails?.price ?? 0;
+      // Use the price locked at enrollment time; fall back to current package price.
+      const packagePrice = enrollment.price > 0 ? enrollment.price : (packageDetails?.price ?? 0);
 
       summaries.push({
         sportName,
