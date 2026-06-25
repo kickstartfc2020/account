@@ -27,7 +27,7 @@ export function Header() {
   const isSuperAdmin = role === 'super_admin';
   const { data: locations } = useLocations();
   const { data: sports, loading: sportsLoading } = useSports();
-  const activeSports = React.useMemo(() => sports.filter((sport) => sport.status === 'active'), [sports]);
+  const activeSports = React.useMemo(() => sports.filter((sport) => sport.status === 'active' && sport.name !== 'Manual Invoices'), [sports]);
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const [isSportDialogOpen, setIsSportDialogOpen] = React.useState(false);
   const navigate = useNavigate();

@@ -67,7 +67,7 @@ export default function CreateInvoice() {
   const navigate = useNavigate();
   const isManualMode = searchParams.get('mode') === 'manual';
   const sportId = searchParams.get('sportId');
-  const activeSports = React.useMemo(() => sports.filter((s) => s.status === 'active'), [sports]);
+  const activeSports = React.useMemo(() => sports.filter((s) => s.status === 'active' && s.name !== 'Manual Invoices'), [sports]);
   const sportFromQuery = activeSports.find((s) => s.id === sportId) ?? null;
   const sport = isManualMode ? null : (sportFromQuery ?? activeSports[0] ?? null);
   const activeSportId = isManualMode ? '' : (sport?.id ?? '');
@@ -245,6 +245,7 @@ export default function CreateInvoice() {
   const mapPaymentMethod = (mode: string): 'cash' | 'card' | 'upi' | 'online' | 'bank_transfer' => {
     if (mode === 'Cash') return 'cash';
     if (mode === 'Bank') return 'bank_transfer';
+    if (mode === 'Card') return 'card';
     return 'upi';
   };
 
@@ -839,6 +840,7 @@ export default function CreateInvoice() {
                       <SelectItem value="QR">UPI/QR code</SelectItem>
                       <SelectItem value="Bank">Bank</SelectItem>
                       <SelectItem value="Cash">Cash</SelectItem>
+                      <SelectItem value="Card">Card</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
