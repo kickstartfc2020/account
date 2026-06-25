@@ -13,6 +13,8 @@ export interface ManualInvoiceItem {
   unitPrice: number;
   lineTotal: number;
   gstPercent?: number;
+  cgstAmount?: number;
+  sgstAmount?: number;
 }
 
 export interface Location {
@@ -83,6 +85,8 @@ export interface Invoice {
   amount: number;
   discountAmount: number;
   tax: number;
+  cgstAmount: number;
+  sgstAmount: number;
   total: number;
   status: 'draft' | 'unpaid' | 'partial' | 'completed' | 'cancelled';
   balanceAmount: number;

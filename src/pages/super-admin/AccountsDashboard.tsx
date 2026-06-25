@@ -1,6 +1,15 @@
 import React from 'react';
 import { motion } from 'motion/react';
-import { 
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
+import {
   Building2,
   Users,
   MapPin,
@@ -90,6 +99,31 @@ export default function AccountsDashboard() {
     }
     return regions.size;
   }, [allLocations, getRegionName]);
+
+  const [trendPeriod, setTrendPeriod] = React.useState<'6m' | '1y'>('6m');
+
+  const revenueTrendData = React.useMemo(() => {
+    const monthCount = trendPeriod === '6m' ? 6 : 12;
+    const now = new Date();
+    const months: { key: string; label: string }[] = [];
+    for (let i = monthCount - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      months.push({
+        key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+        label: d.toLocaleString('en-IN', { month: 'short' }),
+      });
+    }
+    const revenueByMonth = new Map<string, number>();
+    allInvoices.forEach((inv) => {
+      if (inv.status === 'cancelled') return;
+      const key = inv.date.slice(0, 7);
+      revenueByMonth.set(key, (revenueByMonth.get(key) ?? 0) + inv.total);
+    });
+    return months.map(({ key, label }) => ({
+      month: label,
+      revenue: revenueByMonth.get(key) ?? 0,
+    }));
+  }, [allInvoices, trendPeriod]);
 
   React.useEffect(() => {
     return () => {
@@ -392,6 +426,74 @@ export default function AccountsDashboard() {
           </motion.div>
         ))}
       </div>
+
+      {/* Revenue Trends Chart */}
+      <Card className="glass-card">
+        <CardHeader className="flex flex-row items-center justify-between pb-6">
+          <CardTitle className="text-lg font-display font-semibold">Revenue Trends</CardTitle>
+          <div className="flex gap-1 p-1 bg-gray-100 rounded-lg">
+            {(['6m', '1y'] as const).map((p) => (
+              <button
+                key={p}
+                onClick={() => setTrendPeriod(p)}
+                className={cn(
+                  'px-3 py-1 text-xs font-bold rounded-md transition-all',
+                  trendPeriod === p
+                    ? 'bg-white text-indigo-600 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                )}
+              >
+                {p === '6m' ? '6 Months' : '1 Year'}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="h-[280px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={revenueTrendData}>
+                <defs>
+                  <linearGradient id="colorSARevenue" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.1} />
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis
+                  dataKey="month"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  dy={10}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  tickFormatter={(val) => `₹${Math.round(val).toLocaleString('en-IN')}`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#fff',
+                    borderRadius: '12px',
+                    border: 'none',
+                    boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+                  }}
+                  formatter={(val: number) => [`₹${Math.round(val).toLocaleString('en-IN')}`, 'Revenue']}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  stroke="#4f46e5"
+                  strokeWidth={3}
+                  fillOpacity={1}
+                  fill="url(#colorSARevenue)"
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Locations Grid */}
       <div className="space-y-4">

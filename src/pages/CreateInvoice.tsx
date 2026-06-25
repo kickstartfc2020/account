@@ -54,6 +54,8 @@ type DraftManualItem = {
   unitPrice: string;
 };
 
+const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 export default function CreateInvoice() {
   const { data: students } = useStudents();
   const { data: packages } = usePackages();
@@ -99,6 +101,9 @@ export default function CreateInvoice() {
   const [manualCustomerPhone, setManualCustomerPhone] = React.useState('');
   const [manualCustomerGst, setManualCustomerGst] = React.useState('');
   const [manualCustomerPan, setManualCustomerPan] = React.useState('');
+  const [manualStudentSearch, setManualStudentSearch] = React.useState('');
+  const [showManualStudentDropdown, setShowManualStudentDropdown] = React.useState(false);
+  const manualSearchRef = React.useRef<HTMLDivElement>(null);
   const [manualFieldErrors, setManualFieldErrors] = React.useState<{
     name?: string;
     email?: string;
@@ -114,6 +119,16 @@ export default function CreateInvoice() {
     supabase.rpc('current_branch_id').then(({ data }) => {
       setCurrentBranchId((data as string | null) ?? null);
     });
+  }, []);
+
+  React.useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (manualSearchRef.current && !manualSearchRef.current.contains(e.target as Node)) {
+        setShowManualStudentDropdown(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   React.useEffect(() => {
@@ -134,6 +149,13 @@ export default function CreateInvoice() {
       setSelectedStudentId(students[0].id);
     }
   }, [isManualMode, selectedStudentId, students]);
+
+  // Reset student selection when sport changes so previous selection never bleeds through
+  React.useEffect(() => {
+    if (!isManualMode) {
+      setSelectedStudentId(null);
+    }
+  }, [activeSportId, isManualMode]);
 
   const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
 
@@ -164,13 +186,59 @@ export default function CreateInvoice() {
     return filteredStudents.slice(0, 2);
   }, [filteredStudents, searchTerm]);
   
+  const studentInvoiceStatus = React.useMemo(() => {
+    const map = new Map<string, 'paid' | 'pending' | 'unpaid'>();
+    const totalInvoiced = new Map<string, number>();
+
+    invoices.forEach((inv) => {
+      if (inv.status === 'cancelled') return;
+      totalInvoiced.set(inv.studentId, (totalInvoiced.get(inv.studentId) ?? 0) + (inv.amount ?? 0));
+      const prev = map.get(inv.studentId);
+      let next: 'paid' | 'pending' | 'unpaid';
+      if (inv.status === 'completed' && (inv.balanceAmount ?? 0) <= 0) {
+        next = 'paid';
+      } else if (inv.status === 'partial' || ((inv.balanceAmount ?? 0) > 0 && inv.status !== 'unpaid')) {
+        next = 'pending';
+      } else {
+        next = 'unpaid';
+      }
+      // Worst-case wins: unpaid > pending > paid
+      if (!prev || next === 'unpaid' || (next === 'pending' && prev === 'paid')) {
+        map.set(inv.studentId, next);
+      }
+    });
+
+    // If a student's total invoiced amount is less than their package price,
+    // they haven't fully paid yet — downgrade 'paid' to 'pending'.
+    map.forEach((status, studentId) => {
+      if (status !== 'paid') return;
+      const student = students.find((s) => s.id === studentId);
+      if (!student) return;
+      const pkg = packages.find((p) => p.id === student.packageId);
+      if (!pkg) return;
+      if ((totalInvoiced.get(studentId) ?? 0) < pkg.price) {
+        map.set(studentId, 'pending');
+      }
+    });
+
+    return map;
+  }, [invoices, students, packages]);
+
+  const manualStudentSearchResults = React.useMemo(() => {
+    const q = manualStudentSearch.trim().toLowerCase();
+    if (!q) return [];
+    return students.filter(
+      (s) => s.name.toLowerCase().includes(q) || s.phone.includes(q)
+    ).slice(0, 8);
+  }, [students, manualStudentSearch]);
+
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
   const branch =
     locations.find((location) => location.id === selectedStudentForWrite?.locationId) ??
     locations.find((location) => location.id === currentBranchId) ??
     locations[0] ??
     null;
-  const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) || packages.find((p) => p.sportId === activeSportId);
+  const studentPackage = packages.find((p) => p.id === selectedStudent?.packageId) ?? null;
   const fallbackManualPackage = React.useMemo(() => {
     return packages.find((pkg) => pkg.name.toLowerCase().includes('manual')) ?? packages[0] ?? null;
   }, [packages]);
@@ -183,17 +251,21 @@ export default function CreateInvoice() {
   const packageMaxAmount = effectivePackage?.price ?? null;
   const activeStudentInvoices = studentPayments.filter((inv) => inv.status !== 'cancelled');
   const outstandingBalanceAmount = activeStudentInvoices.reduce((sum, inv) => sum + Math.max(0, inv.balanceAmount ?? 0), 0);
-  const hasFullyPaidInvoice = activeStudentInvoices.some((inv) => (inv.balanceAmount ?? 0) <= 0);
+  const totalInvoicedSubtotal = activeStudentInvoices.reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
   const currentInvoiceCount = invoices.length;
   const allowedBaseAmount = React.useMemo(() => {
     if (isManualMode) return Number.MAX_SAFE_INTEGER;
     if (!effectivePackage) return 0;
-    if (hasFullyPaidInvoice) return 0;
+    const packagePrice = effectivePackage.price;
+    // Outstanding balance on prior invoices takes priority
     if (outstandingBalanceAmount > 0) {
-      return Math.min(outstandingBalanceAmount, effectivePackage.price);
+      return Math.min(outstandingBalanceAmount, packagePrice);
     }
-    return effectivePackage.price;
-  }, [hasFullyPaidInvoice, outstandingBalanceAmount, effectivePackage, isManualMode]);
+    // Allow the difference between package price and what's already been invoiced
+    return Math.max(0, packagePrice - totalInvoicedSubtotal);
+  }, [outstandingBalanceAmount, totalInvoicedSubtotal, effectivePackage, isManualMode]);
+  // Derived for UI messaging only — not used as a gate
+  const hasFullyPaidInvoice = !isManualMode && allowedBaseAmount === 0 && activeStudentInvoices.length > 0;
   const amountExceedsAllowedAmount = isManualMode ? false : parseFloat(amount || '0') > allowedBaseAmount;
 
   React.useEffect(() => {
@@ -221,13 +293,14 @@ export default function CreateInvoice() {
 
   const amountInput = isManualMode ? String(manualSubtotal) : amount;
 
-  const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber } =
+  const { subtotal, discountAmount, taxableAmount, taxAmount, total, invoiceNumber, isGstInclusive } =
     useInvoiceCalculator({
       amount: amountInput,
       discount,
       gstRate,
       academyCode: academy.code,
       invoiceCount: currentInvoiceCount,
+      isGstInclusive: !isManualMode,
     });
 
   const handlePrint = () => {
@@ -530,7 +603,7 @@ export default function CreateInvoice() {
 
   const finalizeDisabled = isManualMode
     ? isSaving || !manualCustomerName.trim() || manualSubtotal <= 0
-    : isSaving || !selectedStudentForWrite || hasFullyPaidInvoice || amountExceedsAllowedAmount || allowedBaseAmount === 0;
+    : isSaving || !selectedStudentForWrite || amountExceedsAllowedAmount || allowedBaseAmount === 0;
 
   return (
     !isManualMode && !sport ? (
@@ -592,6 +665,59 @@ export default function CreateInvoice() {
                 </Badge>
               </div>
               <div className="space-y-3">
+                {/* Student lookup — fills form fields from existing students */}
+                <div ref={manualSearchRef} className="relative">
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Search Existing Student</label>
+                  <div className="relative mt-1.5">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
+                    <Input
+                      value={manualStudentSearch}
+                      onChange={(e) => {
+                        setManualStudentSearch(e.target.value);
+                        setShowManualStudentDropdown(true);
+                      }}
+                      onFocus={() => setShowManualStudentDropdown(true)}
+                      placeholder="Name or phone number..."
+                      className="h-11 pl-9 border-gray-200 focus:ring-indigo-500"
+                    />
+                  </div>
+                  {showManualStudentDropdown && manualStudentSearchResults.length > 0 && (
+                    <div className="absolute z-50 top-full mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+                      {manualStudentSearchResults.map((s) => (
+                        <button
+                          key={s.id}
+                          type="button"
+                          className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-indigo-50 transition-colors border-b border-gray-100 last:border-0"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setManualCustomerName(s.name);
+                            setManualCustomerPhone(s.phone);
+                            setManualCustomerEmail(s.email ?? '');
+                            setManualStudentSearch('');
+                            setShowManualStudentDropdown(false);
+                            setManualFieldErrors((prev) => ({ ...prev, name: undefined }));
+                            setIsGenerated(false);
+                          }}
+                        >
+                          <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold shrink-0">
+                            {s.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-800 truncate">{s.name}</p>
+                            <p className="text-[11px] text-gray-500">{s.phone}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="flex-1 h-px bg-gray-200" />
+                  <span className="text-[10px] font-bold uppercase text-gray-400 shrink-0">Customer Details</span>
+                  <div className="flex-1 h-px bg-gray-200" />
+                </div>
+
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-gray-500">Name <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
                   <Input value={manualCustomerName} onChange={(e) => { setManualCustomerName(e.target.value); setManualFieldErrors((prev) => ({ ...prev, name: undefined })); setIsGenerated(false); }} placeholder="Customer full name" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.name && "border-red-400 focus:ring-red-400")} />
@@ -660,9 +786,20 @@ export default function CreateInvoice() {
                         {student.phone}
                       </p>
                     </div>
-                    {invoices.some(inv => inv.studentId === student.id && inv.status !== 'cancelled') && (
-                      <span className={cn("text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0", selectedStudentId === student.id ? "bg-white/20 text-white" : "bg-amber-100 text-amber-700")}>Paid</span>
-                    )}
+                    {(() => {
+                      const status = studentInvoiceStatus.get(student.id);
+                      if (!status) return null;
+                      const isSelected = selectedStudentId === student.id;
+                      const colourClass = isSelected
+                        ? 'bg-white/20 text-white'
+                        : status === 'paid'
+                          ? 'bg-emerald-100 text-emerald-700'
+                          : status === 'pending'
+                            ? 'bg-amber-100 text-amber-700'
+                            : 'bg-red-100 text-red-600';
+                      const label = status === 'paid' ? 'Paid' : status === 'pending' ? 'Pending' : 'Unpaid';
+                      return <span className={cn('text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-full shrink-0', colourClass)}>{label}</span>;
+                    })()}
                   </button>
                 ))}
               </div>
@@ -678,7 +815,7 @@ export default function CreateInvoice() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">
-                    Base Amount (₹){!isManualMode && selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
+                    {isManualMode ? 'Base Amount (₹)' : 'Amount (₹, incl. GST)'}{!isManualMode && selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
                   </label>
                   <Input 
                     type="number" 
@@ -1147,10 +1284,10 @@ export default function CreateInvoice() {
                         {String(item.quantity)}
                       </div>
                       <div className="col-span-2 text-right font-medium text-gray-600">
-                        ₹{item.unitPrice.toLocaleString()}
+                        ₹{fmt(item.unitPrice)}
                       </div>
                       <div className="col-span-2 text-right font-black text-gray-900 text-base">
-                        ₹{item.lineTotal.toLocaleString()}
+                        ₹{fmt(item.lineTotal)}
                       </div>
                     </div>
                   ))
@@ -1164,10 +1301,10 @@ export default function CreateInvoice() {
                       01
                     </div>
                     <div className="col-span-2 text-right font-medium text-gray-600">
-                      ₹{subtotal.toLocaleString()}
+                      ₹{fmt(subtotal)}
                     </div>
                     <div className="col-span-2 text-right font-black text-gray-900 text-base">
-                      ₹{subtotal.toLocaleString()}
+                      ₹{fmt(subtotal)}
                     </div>
                   </div>
                 )}
@@ -1176,34 +1313,42 @@ export default function CreateInvoice() {
                 <div className="flex justify-end pt-3">
                   <div className="w-full max-w-[320px] rounded-2xl bg-gray-50 p-6 space-y-3 border border-gray-100">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Subtotal</span>
-                      <span className="font-bold text-gray-900 text-right">₹{subtotal.toLocaleString()}</span>
+                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">
+                        {isGstInclusive ? 'Package Price (incl. GST)' : 'Subtotal'}
+                      </span>
+                      <span className="font-bold text-gray-900 text-right">₹{fmt(subtotal)}</span>
                     </div>
                     {discountAmount > 0 && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
+                        <span className="font-bold text-emerald-600 text-right">- ₹{fmt(discountAmount)}</span>
+                      </div>
+                    )}
+                    {/* For inclusive GST, always show taxable breakdown. For exclusive, show only when discount applied. */}
+                    {(isGstInclusive || discountAmount > 0) && (
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Taxable Amount</span>
+                        <span className="font-bold text-gray-900 text-right">₹{fmt(taxableAmount)}</span>
+                      </div>
+                    )}
+                    {Number(gstRate) > 0 && (
                       <>
                         <div className="flex justify-between text-sm">
-                          <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
-                          <span className="font-bold text-emerald-600 text-right">- ₹{discountAmount.toLocaleString()}</span>
+                          <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">CGST ({Number(gstRate) / 2}%)</span>
+                          <span className="font-bold text-gray-900 text-right">₹{fmt(taxAmount / 2)}</span>
                         </div>
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">After Discount</span>
-                          <span className="font-bold text-gray-900 text-right">₹{taxableAmount.toLocaleString()}</span>
+                          <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">SGST ({Number(gstRate) / 2}%)</span>
+                          <span className="font-bold text-gray-900 text-right">₹{fmt(taxAmount / 2)}</span>
                         </div>
                       </>
                     )}
-                    <div className="flex justify-between text-sm items-center">
-                      <div className="flex flex-col">
-                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">GST ({gstRate}%)</span>
-                        <span className="text-[8px] text-gray-400 font-medium">Central & State Tax</span>
-                      </div>
-                      <span className="font-bold text-gray-900 text-right">₹{taxAmount.toLocaleString()}</span>
-                    </div>
                     <div className="pt-6 mt-2 border-t-2 border-dashed border-gray-200 flex justify-between items-end">
                       <div className="space-y-1">
                         <span className="text-[9px] font-bold text-kickstart-lime uppercase tracking-[0.2em] leading-none">Total Payable</span>
                         <h4 className="text-xl font-display font-bold text-kickstart-forest leading-none">Grand Total</h4>
                       </div>
-                      <span className="text-xl font-display font-bold text-kickstart-forest tracking-tight">₹{total.toLocaleString()}</span>
+                      <span className="text-xl font-display font-bold text-kickstart-forest tracking-tight">₹{fmt(total)}</span>
                     </div>
                   </div>
                 </div>

@@ -24,13 +24,16 @@ import { sendInvoiceEmail } from '@/lib/invoiceEmail';
 
 type EmailDeliveryStatus = 'not_sent' | 'sending' | 'sent' | 'failed';
 
+const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
 function mapInvoiceRowToInvoice(row: any): Invoice {
   const student = row.students as { name: string; ref_id: string | null; email: string | null } | null;
   const branch = row.branches as { name: string } | null;
   const payments = (row.payments as Array<{ method: string; status: string }>) ?? [];
-  const items = (row.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number }>) ?? [];
+  const items = (row.invoice_items as Array<{ description: string; quantity: number; unit_price: number; line_total: number; gst_percent: number | null }>) ?? [];
   const manualBillTo = parseManualInvoiceNotes(row.notes as string | null | undefined);
   const completedPayment = payments.find((payment) => payment.status === 'completed');
+  const taxTotal = (row.tax_total as number) ?? 0;
 
   return {
     id: row.invoice_number as string,
@@ -45,7 +48,9 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
     manualCustomerPan: manualBillTo?.pan,
     amount: row.subtotal as number,
     discountAmount: (row.discount_total as number) ?? 0,
-    tax: row.tax_total as number,
+    tax: taxTotal,
+    cgstAmount: Math.round(taxTotal / 2 * 100) / 100,
+    sgstAmount: Math.round(taxTotal / 2 * 100) / 100,
     total: row.total_amount as number,
     status: (row.status as Invoice['status']) ?? 'unpaid',
     balanceAmount: (row.balance_amount as number) ?? 0,
@@ -672,11 +677,11 @@ export default function ViewInvoice() {
                   <div className="col-span-8">
                     <p className="font-bold text-gray-900 text-base tracking-tight">{item.description}</p>
                     <p className="text-xs text-gray-400 mt-2 font-medium">
-                      Qty {item.quantity} × ₹{item.unitPrice.toLocaleString()}
+                      Qty {item.quantity} × ₹{fmt(item.unitPrice)}
                     </p>
                   </div>
                   <div className="col-span-4 text-right font-black text-gray-900 text-base">
-                    ₹{(item.quantity * item.unitPrice).toLocaleString()}
+                    ₹{fmt(item.quantity * item.unitPrice)}
                   </div>
                 </div>
               ))}
@@ -686,33 +691,36 @@ export default function ViewInvoice() {
                 <div className="w-full max-w-[320px] rounded-2xl bg-gray-50 p-6 space-y-3 border border-gray-100">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Subtotal</span>
-                    <span className="font-bold text-gray-900 text-right">₹{invoice.amount.toLocaleString()}</span>
+                    <span className="font-bold text-gray-900 text-right">₹{fmt(invoice.amount)}</span>
                   </div>
                   {invoice.discountAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
+                      <span className="font-bold text-emerald-600 text-right">- ₹{fmt(invoice.discountAmount)}</span>
+                    </div>
+                  )}
+                  {invoice.tax > 0 && (
                     <>
                       <div className="flex justify-between text-sm">
-                        <span className="text-emerald-500 font-bold uppercase tracking-widest text-[9px]">Discount</span>
-                        <span className="font-bold text-emerald-600 text-right">- ₹{invoice.discountAmount.toLocaleString()}</span>
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">Taxable Amount</span>
+                        <span className="font-bold text-gray-900 text-right">₹{fmt(invoice.total - invoice.tax)}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">After Discount</span>
-                        <span className="font-bold text-gray-900 text-right">₹{(invoice.amount - invoice.discountAmount).toLocaleString()}</span>
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">CGST ({gstPercentDisplay / 2}%)</span>
+                        <span className="font-bold text-gray-900 text-right">₹{fmt(invoice.cgstAmount)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">SGST ({gstPercentDisplay / 2}%)</span>
+                        <span className="font-bold text-gray-900 text-right">₹{fmt(invoice.sgstAmount)}</span>
                       </div>
                     </>
                   )}
-                  <div className="flex justify-between text-sm items-center">
-                    <div className="flex flex-col">
-                      <span className="text-gray-400 font-bold uppercase tracking-widest text-[9px]">GST ({gstPercentDisplay}%)</span>
-                      <span className="text-[8px] text-gray-400 font-medium">Central & State Tax</span>
-                    </div>
-                    <span className="font-bold text-gray-900 text-right">₹{invoice.tax.toLocaleString()}</span>
-                  </div>
                   <div className="pt-6 mt-2 border-t-2 border-dashed border-gray-200 flex justify-between items-end">
                     <div className="space-y-1">
                       <span className="text-[9px] font-bold text-[#D4FF00] uppercase tracking-[0.2em] leading-none">Total Payable</span>
                       <h4 className="text-xl font-display font-bold text-[#1A3C34] leading-none">Grand Total</h4>
                     </div>
-                    <span className="text-xl font-display font-bold text-[#1A3C34] tracking-tight">₹{(invoice.amount - invoice.discountAmount + invoice.tax).toLocaleString()}</span>
+                    <span className="text-xl font-display font-bold text-[#1A3C34] tracking-tight">₹{fmt(invoice.total)}</span>
                   </div>
                 </div>
               </div>

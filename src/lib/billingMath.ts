@@ -22,3 +22,23 @@ export function computeBillingTotals(amount: number, gstPercent: number, discoun
     totalAmount: toRupees(totalPaise),
   };
 }
+
+// Used when the entered amount already includes GST (sport/package mode).
+// Back-calculates the taxable base and embedded GST from the gross price.
+export function computeInclusiveBillingTotals(grossAmount: number, gstPercent: number, discountFromGross = 0) {
+  const grossPaise = Math.max(0, toPaise(grossAmount));
+  const discountPaise = Math.max(0, toPaise(discountFromGross));
+  const totalPaise = Math.max(0, grossPaise - discountPaise);
+  const taxablePaise = gstPercent > 0
+    ? Math.round(totalPaise / (1 + gstPercent / 100))
+    : totalPaise;
+  const taxPaise = totalPaise - taxablePaise;
+
+  return {
+    subtotal: toRupees(grossPaise),
+    discountAmount: toRupees(discountPaise),
+    taxableAmount: toRupees(taxablePaise),
+    taxTotal: toRupees(taxPaise),
+    totalAmount: toRupees(totalPaise),
+  };
+}
