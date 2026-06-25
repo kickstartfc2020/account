@@ -85,6 +85,7 @@ export default function Students() {
   const [editingStudent, setEditingStudent] = React.useState<any>(null);
   const [existingStudentSearch, setExistingStudentSearch] = React.useState('');
   const [selectedExistingStudentId, setSelectedExistingStudentId] = React.useState<string | null>(null);
+  const [sheetStudentId, setSheetStudentId] = React.useState<string | null>(null);
   const [studentsPage, setStudentsPage] = React.useState(1);
   const [addStudentErrors, setAddStudentErrors] = React.useState<{
     name?: string;
@@ -769,9 +770,18 @@ export default function Students() {
           </TableHeader>
           <TableBody>
             {paginatedStudents.map((student) => (
-              <TableRow key={student.id} className="cursor-pointer hover:bg-slate-50 transition-colors">
-                <TableCell>
-                  <StudentDetailSheet student={student} studentEnrollments={enrollmentRows.filter((enrollment) => enrollment.studentId === student.id)}>
+              <React.Fragment key={student.id}>
+                <StudentDetailSheet
+                  student={student}
+                  studentEnrollments={enrollmentRows.filter((e: { studentId: string }) => e.studentId === student.id)}
+                  open={sheetStudentId === student.id}
+                  onOpenChange={(o) => setSheetStudentId(o ? student.id : null)}
+                />
+                <TableRow
+                  className="cursor-pointer hover:bg-slate-50 transition-colors group"
+                  onClick={() => setSheetStudentId(student.id)}
+                >
+                  <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="h-9 w-9 border">
                         <AvatarFallback className="bg-indigo-50 text-indigo-600 font-semibold">
@@ -779,46 +789,46 @@ export default function Students() {
                         </AvatarFallback>
                       </Avatar>
                       <div>
-                        <p className="font-semibold text-slate-900 leading-none">{student.name}</p>
+                        <p className="font-semibold text-slate-900 leading-none group-hover:text-indigo-600 transition-colors">{student.name}</p>
                         <p className="text-[10px] text-slate-500 mt-1">{student.refId || student.id}</p>
                       </div>
                     </div>
-                  </StudentDetailSheet>
-                </TableCell>
-                <TableCell>
-                  <p className="text-sm font-medium">{student.phone}</p>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1.5">
-                    {getStudentSports(student.id, student.sportName).map((sportName) => (
-                      <Badge key={`${student.id}-${sportName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
-                        {sportName}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1.5">
-                    {getStudentPackages(student.id, student.packageName).map((packageName) => (
-                      <Badge key={`${student.id}-${packageName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
-                        {packageName}
-                      </Badge>
-                    ))}
-                  </div>
-                </TableCell>
-                <TableCell>
-                   <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <MoreHorizontal className="h-4 w-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditProfile(student)}>Edit Profile</DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                  <TableCell>
+                    <p className="text-sm font-medium">{student.phone}</p>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      {getStudentSports(student.id, student.sportName).map((sportName) => (
+                        <Badge key={`${student.id}-${sportName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
+                          {sportName}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1.5">
+                      {getStudentPackages(student.id, student.packageName).map((packageName) => (
+                        <Badge key={`${student.id}-${packageName}`} variant="outline" className="bg-indigo-50 text-indigo-700 border-indigo-100 uppercase text-[10px]">
+                          {packageName}
+                        </Badge>
+                      ))}
+                    </div>
+                  </TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          <MoreHorizontal className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEditProfile(student)}>Edit Profile</DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              </React.Fragment>
             ))}
           </TableBody>
         </Table>

@@ -22,7 +22,16 @@ SET
   cgst_amount = ROUND(line_tax / 2, 2),
   sgst_amount = ROUND(line_tax / 2, 2);
 
--- Update finalize_invoice_write to populate CGST/SGST
+-- Update finalize_invoice_write to populate CGST/SGST.
+-- DROP is required because CREATE OR REPLACE cannot remove DEFAULT values
+-- that existed in the original baseline signature.
+DROP FUNCTION IF EXISTS public.finalize_invoice_write(
+  uuid, uuid, uuid, text, text,
+  numeric, numeric, numeric, numeric, numeric, numeric,
+  public.payment_method, text,
+  uuid, date, text
+);
+
 CREATE OR REPLACE FUNCTION public.finalize_invoice_write(
   p_student_id uuid,
   p_package_id uuid,
@@ -37,9 +46,9 @@ CREATE OR REPLACE FUNCTION public.finalize_invoice_write(
   p_gst_percent numeric,
   p_payment_method public.payment_method,
   p_payment_mode_label text,
-  p_preferred_branch_id uuid,
-  p_invoice_date date,
-  p_invoice_number text
+  p_preferred_branch_id uuid DEFAULT NULL::uuid,
+  p_invoice_date date DEFAULT CURRENT_DATE,
+  p_invoice_number text DEFAULT NULL::text
 )
 RETURNS TABLE (
   invoice_id uuid,
@@ -203,7 +212,16 @@ BEGIN
 END;
 $$;
 
--- Update complete_renewal_with_invoice to populate CGST/SGST
+-- Update complete_renewal_with_invoice to populate CGST/SGST.
+-- DROP is required because CREATE OR REPLACE cannot remove DEFAULT values
+-- that existed in the original baseline signature.
+DROP FUNCTION IF EXISTS public.complete_renewal_with_invoice(
+  uuid, uuid, uuid, uuid, text, text,
+  numeric, numeric, numeric, numeric, numeric, numeric,
+  public.payment_method, text,
+  uuid, date
+);
+
 CREATE OR REPLACE FUNCTION public.complete_renewal_with_invoice(
   p_renewal_id uuid,
   p_student_id uuid,
@@ -219,8 +237,8 @@ CREATE OR REPLACE FUNCTION public.complete_renewal_with_invoice(
   p_gst_percent numeric,
   p_payment_method public.payment_method,
   p_payment_mode_label text,
-  p_preferred_branch_id uuid,
-  p_start_date date
+  p_preferred_branch_id uuid DEFAULT NULL::uuid,
+  p_start_date date DEFAULT CURRENT_DATE
 )
 RETURNS TABLE (
   invoice_id uuid,

@@ -23,6 +23,7 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 const superAdminItems = [
   { icon: LayoutDashboard, label: 'Accounts Dashboard', path: '/super-admin' },
   { icon: Receipt, label: 'Invoices', path: '/super-admin/invoices' },
+  { icon: BarChart3, label: 'Reports', path: '/super-admin/reports' },
   { icon: Users, label: 'User Management', path: '/super-admin/users' },
   { icon: Building2, label: 'Club Details', path: '/super-admin/club' },
 ];
