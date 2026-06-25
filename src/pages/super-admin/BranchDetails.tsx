@@ -41,7 +41,6 @@ import { setBranchStatus, deleteBranch } from '@/lib/adminManagement';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 import { format, formatDistanceToNow, parseISO, subMonths } from 'date-fns';
 import { useAuth } from '@/auth/AuthProvider';
-import { formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 
 const SPORT_COLORS = ['#4f46e5', '#10b981', '#f59e0b', '#ef4444'];
@@ -59,14 +58,6 @@ export default function BranchDetails() {
   const [isDeleting, setIsDeleting] = React.useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
   const canManageBranchSecurity = role === 'super_admin';
-  const locationMeta = location as (typeof location & {
-    createdAt?: string;
-    created_at?: string;
-    planType?: string;
-    plan_type?: string;
-    status?: string;
-  }) | undefined;
-
   const ensureSuperAdmin = React.useCallback(() => {
     if (!canManageBranchSecurity) {
       toast.error('Only super admins can perform this action.');
@@ -215,17 +206,28 @@ export default function BranchDetails() {
     return [...invoiceLogs, ...studentLogs].slice(0, 5);
   }, [branchInvoices, branchStudents]);
 
-  const creationDateLabel = React.useMemo(() => {
-    const raw = locationMeta?.createdAt || locationMeta?.created_at;
-    if (!raw) return 'Not available';
-    return formatDateDMY(raw, 'Not available');
-  }, [locationMeta?.createdAt, locationMeta?.created_at]);
+  const revenueBySport = React.useMemo(() => {
+    const map = new Map<string, number>();
+    for (const inv of billedInvoices) {
+      const sport = branchStudents.find((s) => s.id === inv.studentId)?.sportName ?? 'Manual';
+      map.set(sport, (map.get(sport) ?? 0) + (inv.total - inv.balanceAmount));
+    }
+    return Array.from(map.entries())
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [billedInvoices, branchStudents]);
 
-  const planTypeLabel = locationMeta?.planType || locationMeta?.plan_type || 'Not available';
-  const statusLabel = locationMeta?.status || 'unknown';
-  const statusClassName = statusLabel.toLowerCase() === 'active'
-    ? 'bg-green-100 text-green-700'
-    : 'bg-amber-100 text-amber-700';
+  const revenueByPaymentMode = React.useMemo(() => {
+    const labelMap: Record<string, string> = { upi: 'UPI', cash: 'Cash', card: 'Card', online: 'Bank' };
+    const map = new Map<string, number>();
+    for (const inv of billedInvoices) {
+      const label = labelMap[inv.paymentMode] ?? inv.paymentMode ?? 'Other';
+      map.set(label, (map.get(label) ?? 0) + (inv.total - inv.balanceAmount));
+    }
+    return Array.from(map.entries())
+      .map(([name, amount]) => ({ name, amount }))
+      .sort((a, b) => b.amount - a.amount);
+  }, [billedInvoices]);
 
   if (!location) {
     if (locationsLoading) {
@@ -354,25 +356,58 @@ export default function BranchDetails() {
                 </ResponsiveContainer>
               </CardContent>
             </Card>
-            <Card className="glass-card">
-              <CardHeader>
-                <CardTitle className="text-base font-bold">Branch Access Info</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Creation Date</span>
-                  <span className="text-sm font-bold">{creationDateLabel}</span>
-                </div>
-                <div className="flex justify-between items-center py-2 border-b border-gray-100">
-                  <span className="text-sm text-gray-500">Plan Type</span>
-                  <Badge variant="outline" className="bg-blue-50 text-blue-700">{planTypeLabel}</Badge>
-                </div>
-                <div className="flex justify-between items-center py-2">
-                  <span className="text-sm text-gray-500">Status</span>
-                  <Badge className={statusClassName}>{statusLabel}</Badge>
-                </div>
-              </CardContent>
-            </Card>
+            <div className="space-y-4">
+              <Card className="glass-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold">Revenue by Sport</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {revenueBySport.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">No data yet</p>
+                  ) : revenueBySport.map(({ name, amount }) => {
+                    const max = revenueBySport[0].amount;
+                    const pct = max > 0 ? Math.round((amount / max) * 100) : 0;
+                    return (
+                      <div key={name} className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-gray-700 truncate max-w-[120px]">{name}</span>
+                          <span className="text-xs font-bold text-indigo-700">₹{Math.round(amount).toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+
+              <Card className="glass-card">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base font-bold">Revenue by Payment</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  {revenueByPaymentMode.length === 0 ? (
+                    <p className="text-xs text-gray-400 text-center py-4">No data yet</p>
+                  ) : revenueByPaymentMode.map(({ name, amount }) => {
+                    const max = revenueByPaymentMode[0].amount;
+                    const pct = max > 0 ? Math.round((amount / max) * 100) : 0;
+                    const barColor = name === 'UPI' ? 'bg-violet-500' : name === 'Cash' ? 'bg-emerald-500' : name === 'Card' ? 'bg-blue-500' : 'bg-amber-500';
+                    return (
+                      <div key={name} className="space-y-1">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-gray-700">{name}</span>
+                          <span className="text-xs font-bold text-gray-800">₹{Math.round(amount).toLocaleString('en-IN')}</span>
+                        </div>
+                        <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
 

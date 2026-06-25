@@ -1,5 +1,5 @@
 import React from 'react';
-import { computeBillingTotals } from '@/lib/billingMath';
+import { computeBillingTotals, computeInclusiveBillingTotals } from '@/lib/billingMath';
 
 type UseInvoiceCalculatorInput = {
   amount: string;
@@ -7,6 +7,7 @@ type UseInvoiceCalculatorInput = {
   gstRate: string;
   academyCode: string;
   invoiceCount: number;
+  isGstInclusive?: boolean;
 };
 
 export function useInvoiceCalculator({
@@ -15,13 +16,16 @@ export function useInvoiceCalculator({
   gstRate,
   academyCode,
   invoiceCount,
+  isGstInclusive = false,
 }: UseInvoiceCalculatorInput) {
   return React.useMemo(() => {
     const parsedAmount = Number.parseFloat(amount) || 0;
     const parsedDiscount = Number.parseFloat(discount) || 0;
     const parsedGst = Number.parseFloat(gstRate) || 0;
 
-    const totals = computeBillingTotals(parsedAmount, parsedGst, parsedDiscount);
+    const totals = isGstInclusive
+      ? computeInclusiveBillingTotals(parsedAmount, parsedGst, parsedDiscount)
+      : computeBillingTotals(parsedAmount, parsedGst, parsedDiscount);
 
     const sequenceNumber = (invoiceCount + 1).toString().padStart(3, '0');
     const compactCode = (academyCode || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -35,6 +39,7 @@ export function useInvoiceCalculator({
       taxAmount: totals.taxTotal,
       total: totals.totalAmount,
       invoiceNumber,
+      isGstInclusive,
     };
-  }, [academyCode, amount, discount, gstRate, invoiceCount]);
+  }, [academyCode, amount, discount, gstRate, invoiceCount, isGstInclusive]);
 }

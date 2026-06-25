@@ -369,6 +369,8 @@ export function useInvoices() {
                   amount: inv.subtotal as number,
                   discountAmount: (inv.discount_total as number) ?? 0,
                   tax: inv.tax_total as number,
+                  cgstAmount: Math.round((inv.tax_total as number) / 2 * 100) / 100,
+                  sgstAmount: Math.round((inv.tax_total as number) / 2 * 100) / 100,
                   total: inv.total_amount as number,
                   status: (inv.status as Invoice['status']) ?? 'unpaid',
                   balanceAmount: (inv.balance_amount as number) ?? 0,

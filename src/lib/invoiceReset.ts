@@ -32,6 +32,10 @@ export function downloadInvoicesExcelBackup(invoices: Invoice[], organizationNam
       <td>${escapeHtml(invoice.packageName)}</td>
       <td>${escapeHtml(invoice.paymentMode)}</td>
       <td>${invoice.amount.toFixed(2)}</td>
+      <td>${invoice.discountAmount.toFixed(2)}</td>
+      <td>${(invoice.amount - invoice.discountAmount).toFixed(2)}</td>
+      <td>${invoice.cgstAmount.toFixed(2)}</td>
+      <td>${invoice.sgstAmount.toFixed(2)}</td>
       <td>${invoice.tax.toFixed(2)}</td>
       <td>${invoice.total.toFixed(2)}</td>
       <td>${escapeHtml(invoice.status)}</td>
@@ -60,14 +64,18 @@ export function downloadInvoicesExcelBackup(invoices: Invoice[], organizationNam
               <th>Location</th>
               <th>Package</th>
               <th>Payment Mode</th>
-              <th>Amount</th>
-              <th>Tax</th>
-              <th>Total</th>
+              <th>Subtotal</th>
+              <th>Discount</th>
+              <th>Taxable Amount</th>
+              <th>CGST</th>
+              <th>SGST</th>
+              <th>Total GST</th>
+              <th>Grand Total</th>
               <th>Status</th>
               <th>Balance</th>
             </tr>
           </thead>
-          <tbody>${rows || '<tr><td colspan="12">No invoices available.</td></tr>'}</tbody>
+          <tbody>${rows || '<tr><td colspan="16">No invoices available.</td></tr>'}</tbody>
         </table>
       </body>
     </html>`;
