@@ -25,3 +25,25 @@ export async function cancelInvoice(invoiceNumber: string) {
     window.dispatchEvent(new Event('app:invoices:changed'));
   }
 }
+
+export async function updateInvoiceDate(invoiceNumber: string, invoiceDate: string) {
+  if (!supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const { error } = await (supabase as any)
+    .from('invoices')
+    .update({ invoice_date: invoiceDate })
+    .eq('invoice_number', invoiceNumber);
+
+  if (error) {
+    reportOperationalError('invoice.update_date', 'Failed to update invoice date.', error, {
+      invoiceNumber,
+    });
+    throw new Error((error as any).message || 'Failed to update invoice date.');
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:invoices:changed'));
+  }
+}

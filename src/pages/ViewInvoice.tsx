@@ -1,21 +1,25 @@
 import React from 'react';
 import { useParams, useNavigate, useSearchParams, useLocation } from 'react-router-dom';
-import { 
-  ArrowLeft, 
-  Printer, 
-  Download, 
-  Mail, 
+import {
+  ArrowLeft,
+  Printer,
+  Download,
+  Mail,
   ReceiptText,
   XCircle,
-  House
+  House,
+  Pencil,
+  Check,
+  X
 } from 'lucide-react';
 import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { useInvoices, useStudents, useLocations } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { buildInvoicePdfBlob, downloadPdfBlob } from '@/lib/invoiceExport';
-import { cancelInvoice } from '@/lib/invoiceMutations';
+import { cancelInvoice, updateInvoiceDate } from '@/lib/invoiceMutations';
 import { formatDateDMY } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Invoice } from '@/types';
@@ -89,6 +93,9 @@ export default function ViewInvoice() {
   const invoice = invoices.find((inv) => inv.id === id) ?? resolvedGeneratedInvoice;
   const [isCancelling, setIsCancelling] = React.useState(false);
   const [isCancelledLocally, setIsCancelledLocally] = React.useState(false);
+  const [isEditingDate, setIsEditingDate] = React.useState(false);
+  const [editDateValue, setEditDateValue] = React.useState('');
+  const [isSavingDate, setIsSavingDate] = React.useState(false);
   const [emailDeliveryStatus, setEmailDeliveryStatus] = React.useState<EmailDeliveryStatus>('not_sent');
   const [emailDeliveryMessage, setEmailDeliveryMessage] = React.useState('Not sent yet');
 
@@ -340,6 +347,34 @@ export default function ViewInvoice() {
     }
   };
 
+  const handleStartEditDate = () => {
+    setEditDateValue(invoice.date);
+    setIsEditingDate(true);
+  };
+
+  const handleCancelEditDate = () => {
+    setIsEditingDate(false);
+  };
+
+  const handleSaveDate = async () => {
+    if (!editDateValue) {
+      toast.error('Please select a valid date.');
+      return;
+    }
+
+    setIsSavingDate(true);
+    try {
+      await updateInvoiceDate(invoice.id, editDateValue);
+      toast.success('Invoice date updated.');
+      setIsEditingDate(false);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to update invoice date.';
+      toast.error(message);
+    } finally {
+      setIsSavingDate(false);
+    }
+  };
+
   const handlePrint = async () => {
     if (!invoice) {
       toast.error('Invoice is not ready for print yet.');
@@ -552,7 +587,49 @@ export default function ViewInvoice() {
                   </div>
                   <div className="flex flex-col">
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Date Issued</span>
-                    <span className="text-xs font-bold text-gray-900">{formatDateDMY(invoice.date)}</span>
+                    {isEditingDate ? (
+                      <div className="flex items-center gap-1.5 mt-1 print:hidden">
+                        <Input
+                          type="date"
+                          value={editDateValue}
+                          onChange={(e) => setEditDateValue(e.target.value)}
+                          className="h-7 w-[130px] text-xs"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveDate()}
+                          disabled={isSavingDate}
+                          className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                          title="Save date"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelEditDate}
+                          disabled={isSavingDate}
+                          className="text-gray-400 hover:text-gray-600 disabled:opacity-50"
+                          title="Cancel"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                        {formatDateDMY(invoice.date)}
+                        {!isCancelled && (
+                          <button
+                            type="button"
+                            onClick={handleStartEditDate}
+                            className="text-gray-300 hover:text-indigo-600 print:hidden"
+                            title="Edit invoice date"
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                        )}
+                      </span>
+                    )}
                   </div>
                   <div className="flex flex-col">
                     <span className="text-[9px] font-bold text-gray-400 uppercase tracking-widest">Status</span>
