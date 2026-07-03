@@ -270,3 +270,14 @@ export async function archiveStudent(studentId: string) {
 
   if (error) throw error;
 }
+
+export async function deleteStudent(studentId: string) {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { data, error } = await (supabase as any).rpc('delete_student_safe', {
+    p_student_id: studentId,
+  });
+
+  if (error) throw new Error(error.message || 'Failed to delete student.');
+  if (!data) throw new Error('Student could not be deleted.');
+}
