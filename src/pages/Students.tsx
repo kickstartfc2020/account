@@ -14,7 +14,7 @@ import {
   User,
   Hash
 } from 'lucide-react';
-import { useStudents, useSports, usePackages, useLocations, useStudentEnrollments } from '@/hooks/useData';
+import { useStudents, useSports, usePackages, useLocations, useStudentEnrollments, useInvoices } from '@/hooks/useData';
 import { 
   Table, 
   TableBody, 
@@ -54,7 +54,7 @@ import {
 import { toast } from 'sonner';
 
 import { StudentDetailSheet } from '@/components/StudentDetailSheet';
-import { addStudentEnrollment, createStudent, updateStudent, archiveStudent } from '@/lib/dataMutations';
+import { addStudentEnrollment, createStudent, updateStudent, archiveStudent, deleteStudent } from '@/lib/dataMutations';
 import type { Student, StudentEnrollment } from '@/types';
 import { cn, formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
@@ -66,6 +66,7 @@ export default function Students() {
   const { data: packages } = usePackages();
   const { data: locations } = useLocations();
   const { data: studentEnrollments } = useStudentEnrollments();
+  const { data: invoices } = useInvoices();
   const [studentRows, setStudentRows] = React.useState<Student[]>(students);
   const [enrollmentRows, setEnrollmentRows] = React.useState<StudentEnrollment[]>(studentEnrollments);
 
@@ -82,6 +83,7 @@ export default function Students() {
   const [isAddDialogOpen, setIsAddDialogOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isArchiving, setIsArchiving] = React.useState(false);
+  const [isDeleting, setIsDeleting] = React.useState(false);
   const [editingStudent, setEditingStudent] = React.useState<any>(null);
   const [existingStudentSearch, setExistingStudentSearch] = React.useState('');
   const [selectedExistingStudentId, setSelectedExistingStudentId] = React.useState<string | null>(null);
@@ -442,7 +444,39 @@ export default function Students() {
     }
   };
 
-  const filteredStudents = studentRows.filter(s => 
+  const studentIdsWithInvoices = React.useMemo(
+    () => new Set(invoices.map((inv) => inv.studentId)),
+    [invoices]
+  );
+
+  const handleDeleteStudent = async (student: Student) => {
+    if (studentIdsWithInvoices.has(student.id)) {
+      toast.error('This student has invoice history and cannot be deleted. Archive them instead.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Permanently delete ${student.name}? This cannot be undone and removes them from the database entirely.`
+    );
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      await deleteStudent(student.id);
+      setStudentRows((prev) => prev.filter((row) => row.id !== student.id));
+      toast.success('Student deleted permanently.');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete student.';
+      reportOperationalError('student.delete', 'Failed to delete student.', error, {
+        studentId: student.id,
+      });
+      toast.error(message);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const filteredStudents = studentRows.filter(s =>
     s.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     s.phone.includes(searchTerm)
   );
@@ -828,6 +862,13 @@ export default function Students() {
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
                         <DropdownMenuItem onClick={() => handleEditProfile(student)}>Edit Profile</DropdownMenuItem>
+                        <DropdownMenuItem
+                          variant="destructive"
+                          onClick={() => void handleDeleteStudent(student)}
+                          disabled={isDeleting || studentIdsWithInvoices.has(student.id)}
+                        >
+                          {studentIdsWithInvoices.has(student.id) ? 'Delete (has invoices)' : 'Delete Student'}
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
