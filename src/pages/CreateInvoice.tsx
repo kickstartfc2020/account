@@ -20,6 +20,7 @@ import { useAcademyDetails } from '@/hooks/useAcademyDetails';
 import { useStudents, usePackages, useSports, useLocations, useInvoices, useGstRates, useStudentEnrollments } from '@/hooks/useData';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -55,6 +56,7 @@ type DraftManualItem = {
 };
 
 const fmt = (n: number) => n.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const isValidIndianPhone = (value: string) => /^(\+91)?[6-9]\d{9}$/.test(value.trim());
 
 export default function CreateInvoice() {
   const { data: students } = useStudents();
@@ -89,6 +91,10 @@ export default function CreateInvoice() {
   const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
   const [isQrPaymentDialogOpen, setIsQrPaymentDialogOpen] = React.useState(false);
+  const [paymentDialogStep, setPaymentDialogStep] = React.useState<'confirm' | 'partial'>('confirm');
+  const [partialAmount, setPartialAmount] = React.useState('');
+  const [partialReminderDate, setPartialReminderDate] = React.useState('');
+  const [partialReminderNote, setPartialReminderNote] = React.useState('');
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
@@ -107,6 +113,7 @@ export default function CreateInvoice() {
   const [manualFieldErrors, setManualFieldErrors] = React.useState<{
     name?: string;
     email?: string;
+    phone?: string;
     manualItems?: string;
   }>({});
   const submitRequestKeyRef = React.useRef<string | null>(null);
@@ -322,16 +329,19 @@ export default function CreateInvoice() {
     return 'upi';
   };
 
-  const handleFinalizeInvoice = async (skipPaymentDialog = false) => {
+  const handleFinalizeInvoice = async (opts?: { paidAmount: number; reminderDate?: string; reminderNote?: string }) => {
     if (!isManualMode && !sport) {
       toast.error('No sport available for invoice. Please create a sport first.');
       return;
     }
 
-    const nextManualErrors: { name?: string; manualItems?: string } = {};
+    const nextManualErrors: { name?: string; phone?: string; manualItems?: string } = {};
 
     if (isManualMode && !manualCustomerName.trim()) {
       nextManualErrors.name = 'Name is required.';
+    }
+    if (isManualMode && !isValidIndianPhone(manualCustomerPhone)) {
+      nextManualErrors.phone = 'Enter a valid 10-digit phone number.';
     }
     if (isManualMode && manualSubtotal <= 0) {
       nextManualErrors.manualItems = 'At least one item must have description, quantity, and rate greater than 0.';
@@ -343,6 +353,11 @@ export default function CreateInvoice() {
 
     if (isManualMode && !manualCustomerName.trim()) {
       toast.error('Name is required for manual invoices.');
+      return;
+    }
+
+    if (isManualMode && !isValidIndianPhone(manualCustomerPhone)) {
+      toast.error('A valid phone number is required for manual invoices.');
       return;
     }
 
@@ -461,22 +476,39 @@ export default function CreateInvoice() {
       }
 
       try {
-        const createdStudent = await createStudent({
-          name: manualCustomerName.trim() || 'Walk-in Customer',
-          phone: manualCustomerPhone.trim() || `90000${Date.now().toString().slice(-5)}`,
-          email: manualCustomerEmail.trim(),
-          sportId: sportForWrite.id,
-          packageId: packageForWrite.id,
-          branchId: branchForManualInvoice,
-        });
+        // Reuse the existing profile for this phone number instead of trying to
+        // insert a duplicate (students.phone is unique per organization).
+        const existingByPhone = students.find((s) => s.phone.trim() === manualCustomerPhone.trim());
 
-        setSelectedStudentId(createdStudent.id);
-        studentForWrite = {
-          id: createdStudent.id,
-          locationId: createdStudent.branch_id,
-        } as typeof selectedStudent;
+        if (existingByPhone) {
+          setSelectedStudentId(existingByPhone.id);
+          studentForWrite = {
+            id: existingByPhone.id,
+            locationId: existingByPhone.locationId,
+          } as typeof selectedStudent;
+        } else {
+          const createdStudent = await createStudent({
+            name: manualCustomerName.trim() || 'Walk-in Customer',
+            phone: manualCustomerPhone.trim(),
+            email: manualCustomerEmail.trim(),
+            sportId: sportForWrite.id,
+            packageId: packageForWrite.id,
+            branchId: branchForManualInvoice,
+          });
+
+          setSelectedStudentId(createdStudent.id);
+          studentForWrite = {
+            id: createdStudent.id,
+            locationId: createdStudent.branch_id,
+          } as typeof selectedStudent;
+        }
       } catch (error) {
-        toast.error(error instanceof Error ? error.message : 'Failed to initialize manual customer.');
+        const message = error instanceof Error
+          ? error.message
+          : (typeof error === 'object' && error !== null && 'message' in error)
+            ? String((error as { message?: unknown }).message)
+            : 'Failed to initialize manual customer.';
+        toast.error(message);
         return;
       }
     }
@@ -505,12 +537,17 @@ export default function CreateInvoice() {
       return;
     }
 
-    if (!skipPaymentDialog) {
+    if (!opts) {
+      setPaymentDialogStep('confirm');
       setIsQrPaymentDialogOpen(true);
       return;
     }
 
     setIsQrPaymentDialogOpen(false);
+    setPaymentDialogStep('confirm');
+    setPartialAmount('');
+    setPartialReminderDate('');
+    setPartialReminderNote('');
 
     // Open app route synchronously from user click to avoid popup blockers and blank-tab fallbacks.
     const preparingUrl = `${window.location.origin}/invoices/view/pending?generated=1&creating=1`;
@@ -547,6 +584,9 @@ export default function CreateInvoice() {
         preferredBranchId: studentForWrite.locationId,
         invoiceDate,
         requestKey: submitRequestKeyRef.current,
+        paidAmount: opts.paidAmount,
+        reminderDate: opts.reminderDate,
+        reminderNote: opts.reminderNote,
       });
 
       if (isManualMode && supabase) {
@@ -599,6 +639,25 @@ export default function CreateInvoice() {
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const partialAmountValue = parseFloat(partialAmount || '0');
+  const partialPendingAmount = Math.max(total - (Number.isFinite(partialAmountValue) ? partialAmountValue : 0), 0);
+
+  const handlePartialPaymentConfirm = async () => {
+    if (!partialAmount || partialAmountValue <= 0) {
+      toast.error('Enter an amount greater than zero.');
+      return;
+    }
+    if (partialAmountValue > total) {
+      toast.error('Amount paid cannot exceed the invoice total.');
+      return;
+    }
+    if (!partialReminderDate) {
+      toast.error('A reminder date is required for a partial payment.');
+      return;
+    }
+    await handleFinalizeInvoice({ paidAmount: partialAmountValue, reminderDate: partialReminderDate, reminderNote: partialReminderNote });
   };
 
   const finalizeDisabled = isManualMode
@@ -728,8 +787,9 @@ export default function CreateInvoice() {
                   <Input type="email" value={manualCustomerEmail} onChange={(e) => { setManualCustomerEmail(e.target.value); setIsGenerated(false); }} placeholder="customer@email.com" className="h-11 border-gray-200 focus:ring-indigo-500" />
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold uppercase text-gray-500">Number (Optional)</label>
-                  <Input value={manualCustomerPhone} onChange={(e) => { setManualCustomerPhone(e.target.value); setIsGenerated(false); }} placeholder="Phone number" className="h-11 border-gray-200 focus:ring-indigo-500" />
+                  <label className="text-[10px] font-bold uppercase text-gray-500">Phone Number <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
+                  <Input value={manualCustomerPhone} onChange={(e) => { setManualCustomerPhone(e.target.value); setManualFieldErrors((prev) => ({ ...prev, phone: undefined })); setIsGenerated(false); }} placeholder="10-digit phone number" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.phone && "border-red-400 focus:ring-red-400")} />
+                  {manualFieldErrors.phone && <p className="text-[11px] text-red-500">{manualFieldErrors.phone}</p>}
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-gray-500">GST</label>
@@ -1030,56 +1090,6 @@ export default function CreateInvoice() {
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl flex items-start gap-2">
                   <span className="text-amber-500 mt-0.5 shrink-0">⚠</span>
                   <div>
-                  <Dialog open={isQrPaymentDialogOpen} onOpenChange={setIsQrPaymentDialogOpen}>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Payment</DialogTitle>
-                        <DialogDescription>
-                          {paymentMode === 'QR'
-                            ? 'Ask the customer to scan and complete payment. Once paid, click the button below to generate the invoice.'
-                            : 'Confirm that payment is collected. Once paid, click the button below to generate the invoice.'}
-                        </DialogDescription>
-                      </DialogHeader>
-
-                      {paymentMode === 'QR' ? (
-                        <div className="rounded-2xl border border-kickstart-lime/20 bg-kickstart-lime/5 p-4 flex flex-col items-center gap-3 text-center">
-                          {academy.upiQrUrl ? (
-                            <img
-                              src={academy.upiQrUrl}
-                              alt="UPI QR code"
-                              width={176}
-                              height={176}
-                              className="w-44 h-44 rounded-xl object-cover border border-gray-200 bg-white"
-                            />
-                          ) : (
-                            <div className="w-44 h-44 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-xs font-semibold text-gray-400 px-3">
-                              QR not configured
-                            </div>
-                          )}
-                          <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em]">Scan with any UPI app</p>
-                          <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || 'UPI ID not configured'}</p>
-                        </div>
-                      ) : (
-                        <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
-                          <p className="text-sm font-semibold text-gray-700">Payment mode: {paymentMode}</p>
-                        </div>
-                      )}
-
-                      <DialogFooter className="gap-2">
-                        <Button type="button" variant="outline" onClick={() => setIsQrPaymentDialogOpen(false)} disabled={isSaving}>
-                          Go Back
-                        </Button>
-                        <Button
-                          type="button"
-                          className="bg-kickstart-forest hover:bg-kickstart-forest/90"
-                          onClick={() => void handleFinalizeInvoice(true)}
-                          disabled={isSaving}
-                        >
-                          {isSaving ? 'Generating...' : 'Paid, Generate Invoice'}
-                        </Button>
-                      </DialogFooter>
-                    </DialogContent>
-                  </Dialog>
                     <p className="text-xs font-bold text-amber-800">Invoice Already Exists</p>
                     <p className="text-[10px] text-amber-700 mt-0.5">This student has already paid for their batch. The base amount is locked at zero.</p>
                   </div>
@@ -1421,54 +1431,140 @@ export default function CreateInvoice() {
       </div>
     </div>
 
-    <Dialog open={isQrPaymentDialogOpen} onOpenChange={setIsQrPaymentDialogOpen}>
+    <Dialog
+      open={isQrPaymentDialogOpen}
+      onOpenChange={(open) => {
+        setIsQrPaymentDialogOpen(open);
+        if (!open) {
+          setPaymentDialogStep('confirm');
+          setPartialAmount('');
+          setPartialReminderDate('');
+          setPartialReminderNote('');
+        }
+      }}
+    >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Payment</DialogTitle>
           <DialogDescription>
-            {paymentMode === 'QR'
-              ? 'Ask the customer to scan and complete payment. Once paid, click the button below to generate the invoice.'
-              : 'Confirm that payment is collected. Once paid, click the button below to generate the invoice.'}
+            {paymentDialogStep === 'partial'
+              ? 'Enter the amount collected now. A reminder is required for the remaining balance.'
+              : paymentMode === 'QR'
+                ? 'Ask the customer to scan and complete payment. Once paid, click the button below to generate the invoice.'
+                : 'Confirm that payment is collected. Once paid, click the button below to generate the invoice.'}
           </DialogDescription>
         </DialogHeader>
 
-        {paymentMode === 'QR' ? (
-          <div className="rounded-2xl border border-kickstart-lime/20 bg-kickstart-lime/5 p-4 flex flex-col items-center gap-3 text-center">
-            {academy.upiQrUrl ? (
-              <img
-                src={academy.upiQrUrl}
-                alt="UPI QR code"
-                width={176}
-                height={176}
-                className="w-44 h-44 rounded-xl object-cover border border-gray-200 bg-white"
-              />
+        {paymentDialogStep === 'confirm' ? (
+          <>
+            {paymentMode === 'QR' ? (
+              <div className="rounded-2xl border border-kickstart-lime/20 bg-kickstart-lime/5 p-4 flex flex-col items-center gap-3 text-center">
+                {academy.upiQrUrl ? (
+                  <img
+                    src={academy.upiQrUrl}
+                    alt="UPI QR code"
+                    width={176}
+                    height={176}
+                    className="w-44 h-44 rounded-xl object-cover border border-gray-200 bg-white"
+                  />
+                ) : (
+                  <div className="w-44 h-44 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-xs font-semibold text-gray-400 px-3">
+                    QR not configured
+                  </div>
+                )}
+                <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em]">Scan with any UPI app</p>
+                <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || 'UPI ID not configured'}</p>
+              </div>
             ) : (
-              <div className="w-44 h-44 rounded-xl border border-dashed border-gray-300 bg-white flex items-center justify-center text-xs font-semibold text-gray-400 px-3">
-                QR not configured
+              <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
+                <p className="text-sm font-semibold text-gray-700">Payment mode: {paymentMode}</p>
               </div>
             )}
-            <p className="text-[10px] font-black text-kickstart-lime uppercase tracking-[0.2em]">Scan with any UPI app</p>
-            <p className="text-sm font-bold text-gray-900 break-all">{academy.upiId || 'UPI ID not configured'}</p>
-          </div>
-        ) : (
-          <div className="rounded-2xl border border-gray-200 bg-gray-50 p-4 text-center">
-            <p className="text-sm font-semibold text-gray-700">Payment mode: {paymentMode}</p>
-          </div>
-        )}
 
-        <DialogFooter className="gap-2">
-          <Button type="button" variant="outline" onClick={() => setIsQrPaymentDialogOpen(false)} disabled={isSaving}>
-            Go Back
-          </Button>
-          <Button
-            type="button"
-            className="bg-kickstart-forest hover:bg-kickstart-forest/90"
-            onClick={() => void handleFinalizeInvoice(true)}
-            disabled={isSaving}
-          >
-            {isSaving ? 'Generating...' : 'Paid, Generate Invoice'}
-          </Button>
-        </DialogFooter>
+            <DialogFooter className="flex-col gap-2 sm:flex-col">
+              <div className="flex w-full gap-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={() => setIsQrPaymentDialogOpen(false)} disabled={isSaving}>
+                  Go Back
+                </Button>
+                <Button
+                  type="button"
+                  className="flex-1 bg-kickstart-forest hover:bg-kickstart-forest/90"
+                  onClick={() => void handleFinalizeInvoice({ paidAmount: total })}
+                  disabled={isSaving}
+                >
+                  {isSaving ? 'Generating...' : 'Paid, Generate Invoice'}
+                </Button>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full text-indigo-600 hover:text-indigo-700 hover:bg-indigo-50"
+                onClick={() => setPaymentDialogStep('partial')}
+                disabled={isSaving}
+              >
+                Partial Payment
+              </Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase text-gray-500">Amount Paid Now</label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={total}
+                  value={partialAmount}
+                  onChange={(e) => setPartialAmount(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+
+              <div className="rounded-xl bg-gray-50 border border-gray-100 p-3 flex justify-between items-center text-sm">
+                <span className="text-gray-500 font-semibold">Pending Amount</span>
+                <span className="font-bold text-gray-900">₹{fmt(partialPendingAmount)}</span>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase text-gray-500">
+                  Set Reminder <span className="text-red-500">*</span>
+                </label>
+                <Input
+                  type="date"
+                  min={new Date().toISOString().slice(0, 10)}
+                  value={partialReminderDate}
+                  onChange={(e) => setPartialReminderDate(e.target.value)}
+                />
+                <p className="text-[11px] text-gray-400">Required so the pending amount is followed up on.</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase text-gray-500">Note (Optional)</label>
+                <Textarea
+                  value={partialReminderNote}
+                  onChange={(e) => setPartialReminderNote(e.target.value)}
+                  placeholder="e.g. Customer will pay balance in cash on next visit"
+                  rows={2}
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setPaymentDialogStep('confirm')} disabled={isSaving}>
+                Back
+              </Button>
+              <Button
+                type="button"
+                className="bg-kickstart-forest hover:bg-kickstart-forest/90"
+                onClick={() => void handlePartialPaymentConfirm()}
+                disabled={isSaving}
+              >
+                {isSaving ? 'Saving...' : 'Confirm Partial Payment'}
+              </Button>
+            </DialogFooter>
+          </>
+        )}
       </DialogContent>
     </Dialog>
     </>

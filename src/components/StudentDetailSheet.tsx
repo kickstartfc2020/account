@@ -19,10 +19,21 @@ import {
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Student, StudentEnrollment } from '@/types';
-import { useInvoices, usePackages } from '@/hooks/useData';
+import { useInvoices, usePackages, useReminders } from '@/hooks/useData';
 import { addMonths, parseISO } from 'date-fns';
 import { formatDateDMY } from '@/lib/utils';
+import { recordInvoicePayment } from '@/lib/invoiceWrite';
+import { reportOperationalError } from '@/lib/observability';
+import { toast } from 'sonner';
 
 interface StudentDetailSheetProps {
   student: Student;
@@ -37,10 +48,48 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
   const [view, setView] = React.useState<'details' | 'history'>('details');
   const { data: allInvoices } = useInvoices();
   const { data: allPackages } = usePackages();
+  const { data: allReminders } = useReminders();
+  const [payingInvoiceId, setPayingInvoiceId] = React.useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = React.useState('');
+  const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'card' | 'upi' | 'bank_transfer'>('cash');
+  const [isRecordingPayment, setIsRecordingPayment] = React.useState(false);
+
+  const handleRecordPayment = async (invoiceDbId: string) => {
+    const amount = parseFloat(paymentAmount || '0');
+    if (!paymentAmount || amount <= 0) {
+      toast.error('Enter an amount greater than zero.');
+      return;
+    }
+
+    setIsRecordingPayment(true);
+    try {
+      await recordInvoicePayment({
+        invoiceId: invoiceDbId,
+        amount,
+        paymentMethod,
+        paymentModeLabel: paymentMethod,
+      });
+      toast.success('Payment recorded.');
+      setPayingInvoiceId(null);
+      setPaymentAmount('');
+    } catch (error) {
+      reportOperationalError('invoice.record_payment', 'Failed to record payment.', error, { invoiceId: invoiceDbId });
+      toast.error(error instanceof Error ? error.message : 'Failed to record payment.');
+    } finally {
+      setIsRecordingPayment(false);
+    }
+  };
   
   const studentInvoices = React.useMemo(() => {
     return allInvoices.filter(inv => inv.studentId === student.id);
   }, [student.id, allInvoices]);
+
+  const nextReminderLabel = React.useMemo(() => {
+    const upcoming = allReminders
+      .filter((reminder) => reminder.studentId === student.id)
+      .sort((a, b) => a.remindAt.localeCompare(b.remindAt));
+    return upcoming.length > 0 ? formatDateDMY(upcoming[0].remindAt) : 'None scheduled';
+  }, [allReminders, student.id]);
 
   const pkg = allPackages.find(p => p.id === student.packageId);
 
@@ -107,6 +156,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
       sportName: string;
       packageName: string;
       packageId: string;
+      isManual: boolean;
       startDateLabel: string;
       expiryDateLabel: string;
       nextRenewalLabel: string;
@@ -120,6 +170,10 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
       const sportName = enrollment.sportName || 'Sport';
       const packageDetails = allPackages.find((item) => item.id === enrollment.packageId);
       const durationMonths = Math.max(packageDetails?.durationMonths ?? 1, 1);
+      // Manual invoices share one dummy zero-price package per branch — there's
+      // no fixed batch cost or enrollment period to compute Start/Expiry/pending
+      // against, so each manual invoice's own total/balance is used instead.
+      const isManual = enrollment.packageName === 'Manual Billing Package';
 
       const startDateLabel = startDate ? formatDateDMY(startDate, 'N/A') : 'N/A';
       const expiryDateLabel = startDate ? formatDateDMY(addMonths(startDate, durationMonths), 'N/A') : 'N/A';
@@ -130,26 +184,36 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
         nextRenewalLabel = formatDateDMY(addMonths(startDate, 1), 'N/A');
       }
 
-      const matchingInvoices = activeStudentInvoices.filter((invoice) =>
-        invoice.packageName === enrollment.packageName
-      );
-      const paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+      const matchingInvoices = isManual
+        ? activeStudentInvoices.filter((invoice) => invoice.manualCustomerName !== undefined)
+        : activeStudentInvoices.filter((invoice) => invoice.packageName === enrollment.packageName);
       const totalDiscountGiven = matchingInvoices.reduce((sum, invoice) => sum + (invoice.discountAmount ?? 0), 0);
 
-      // Use the price locked at enrollment time; fall back to current package price.
-      const packagePrice = enrollment.price > 0 ? enrollment.price : (packageDetails?.price ?? 0);
+      let paidTillNow: number;
+      let amountPending: number;
+
+      if (isManual) {
+        paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + Math.max(invoice.total - invoice.balanceAmount, 0), 0);
+        amountPending = matchingInvoices.reduce((sum, invoice) => sum + Math.max(invoice.balanceAmount, 0), 0);
+      } else {
+        paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
+        // Use the price locked at enrollment time; fall back to current package price.
+        const packagePrice = enrollment.price > 0 ? enrollment.price : (packageDetails?.price ?? 0);
+        amountPending = Math.max(packagePrice - paidTillNow - totalDiscountGiven, 0);
+      }
 
       summaries.push({
         sportName,
         packageName: enrollment.packageName || packageDetails?.name || 'Batch',
         packageId: enrollment.packageId,
+        isManual,
         startDateLabel,
         expiryDateLabel,
         nextRenewalLabel,
         showNextRenewal,
         paidTillNow,
         totalDiscountGiven,
-        amountPending: Math.max(packagePrice - paidTillNow - totalDiscountGiven, 0),
+        amountPending,
       });
     });
 
@@ -244,22 +308,29 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
                         </Badge>
                       </div>
 
-                      <div className={`grid ${summary.showNextRenewal ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-3`}>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Start</p>
-                          <p className="text-sm font-bold text-slate-900 mt-1">{summary.startDateLabel}</p>
+                      {summary.isManual ? (
+                        <div className="pt-3">
+                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Next Reminder</p>
+                          <p className="text-sm font-bold text-slate-900 mt-1">{nextReminderLabel}</p>
                         </div>
-                        <div>
-                          <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Expiry</p>
-                          <p className="text-sm font-bold text-slate-900 mt-1">{summary.expiryDateLabel}</p>
-                        </div>
-                        {summary.showNextRenewal && (
+                      ) : (
+                        <div className={`grid ${summary.showNextRenewal ? 'grid-cols-3' : 'grid-cols-2'} gap-3 pt-3`}>
                           <div>
-                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Next Renewal</p>
-                            <p className="text-sm font-bold text-slate-900 mt-1">{summary.nextRenewalLabel}</p>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Start</p>
+                            <p className="text-sm font-bold text-slate-900 mt-1">{summary.startDateLabel}</p>
                           </div>
-                        )}
-                      </div>
+                          <div>
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Expiry</p>
+                            <p className="text-sm font-bold text-slate-900 mt-1">{summary.expiryDateLabel}</p>
+                          </div>
+                          {summary.showNextRenewal && (
+                            <div>
+                              <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Next Renewal</p>
+                              <p className="text-sm font-bold text-slate-900 mt-1">{summary.nextRenewalLabel}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       <div className="grid grid-cols-2 gap-3 pt-3 mt-3 border-t border-indigo-100/60">
                         <div>
@@ -313,14 +384,75 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
                           <p className="text-[10px] font-medium text-slate-500 uppercase">{invoice.paymentMode}</p>
                         </div>
                       </div>
+                      {invoice.balanceAmount > 0 && (
+                        <div className="flex items-center justify-between pt-3 mt-3 border-t border-slate-50">
+                          <Badge variant="outline" className="bg-rose-50 text-rose-600 border-rose-100 text-[10px] uppercase">
+                            ₹{invoice.balanceAmount.toLocaleString()} Pending
+                          </Badge>
+                          {payingInvoiceId !== invoice.dbId && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 text-[10px] font-bold text-emerald-600 p-0 hover:bg-transparent"
+                              onClick={() => {
+                                setPayingInvoiceId(invoice.dbId);
+                                setPaymentAmount(String(invoice.balanceAmount));
+                              }}
+                            >
+                              Record Payment
+                            </Button>
+                          )}
+                        </div>
+                      )}
+
+                      {payingInvoiceId === invoice.dbId && (
+                        <div className="mt-3 pt-3 border-t border-slate-50 space-y-2">
+                          <div className="flex gap-2">
+                            <Input
+                              type="number"
+                              min={0}
+                              max={invoice.balanceAmount}
+                              value={paymentAmount}
+                              onChange={(e) => setPaymentAmount(e.target.value)}
+                              className="h-9 text-sm"
+                              placeholder="Amount"
+                            />
+                            <Select value={paymentMethod} onValueChange={(v) => setPaymentMethod(v as typeof paymentMethod)}>
+                              <SelectTrigger className="h-9 w-32">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="cash">Cash</SelectItem>
+                                <SelectItem value="upi">UPI</SelectItem>
+                                <SelectItem value="card">Card</SelectItem>
+                                <SelectItem value="bank_transfer">Bank</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+                          <div className="flex gap-2 justify-end">
+                            <Button variant="outline" size="sm" className="h-8 text-[11px]" onClick={() => setPayingInvoiceId(null)} disabled={isRecordingPayment}>
+                              Cancel
+                            </Button>
+                            <Button
+                              size="sm"
+                              className="h-8 text-[11px] bg-emerald-600 hover:bg-emerald-700"
+                              onClick={() => void handleRecordPayment(invoice.dbId)}
+                              disabled={isRecordingPayment}
+                            >
+                              {isRecordingPayment ? 'Saving...' : 'Confirm'}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                         <div className="flex items-center gap-1.5 text-slate-500">
                           <Calendar className="w-3 h-3" />
                           <span className="text-[11px] font-medium">{formatDateDMY(invoice.date)}</span>
                         </div>
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="h-7 text-[10px] font-bold text-indigo-600 p-0 hover:bg-transparent"
                           onClick={() => {
                             navigate(`/invoices/view/${invoice.id}`);

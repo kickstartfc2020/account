@@ -4,7 +4,7 @@
  */
 
 export type StudentStatus = 'active' | 'expiring' | 'expired' | 'unknown';
-export type PaymentMode = 'cash' | 'card' | 'online' | 'upi';
+export type PaymentMode = 'cash' | 'card' | 'online' | 'upi' | 'bank_transfer';
 export type SubscriptionStatus = 'active' | 'expired';
 
 export interface ManualInvoiceItem {
@@ -75,6 +75,8 @@ export interface Student {
 
 export interface Invoice {
   id: string;
+  /** The invoices table's real primary key (id is the display invoice_number). */
+  dbId: string;
   studentId: string;
   studentRefId?: string;
   studentName: string;
@@ -128,4 +130,18 @@ export interface StudentEnrollment {
   sportName: string;
   price: number;
   status: 'pending' | 'overdue' | 'completed' | 'cancelled';
+}
+
+export interface InvoiceReminder {
+  id: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  studentId: string;
+  studentName: string;
+  studentPhone: string;
+  totalAmount: number;
+  balanceAmount: number;
+  remindAt: string;
+  note?: string;
+  status: 'pending' | 'resolved';
 }

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { resolveBranchImagesUrl } from '@/lib/storageAsset';
-import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate, StudentEnrollment } from '@/types';
+import type { Location, Sport, Package, Student, Invoice, Renewal, StudentStatus, GSTRate, StudentEnrollment, InvoiceReminder } from '@/types';
 import { differenceInDays, parseISO } from 'date-fns';
 import { reportOperationalError } from '@/lib/observability';
 import { parseManualInvoiceNotes } from '@/lib/manualInvoice';
@@ -259,15 +259,18 @@ export function useStudents() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    if (!studentsCache) setLoading(true);
-    supabase
-      .from('students')
-      .select(
-        'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, enrolled_price, enrolled_tax_percent, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
-      )
-      .is('archived_at', null)
-      .order('name')
-      .then(({ data: rows, error }) => {
+    const storageEventName = 'app:students:changed';
+
+    const loadStudents = () => {
+      if (!studentsCache) setLoading(true);
+      supabase
+        .from('students')
+        .select(
+          'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, enrolled_price, enrolled_tax_percent, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
+        )
+        .is('archived_at', null)
+        .order('name')
+        .then(({ data: rows, error }) => {
         setLoading(false);
         if (error) {
           reportOperationalError('query.students', 'Failed to load students.', error);
@@ -311,7 +314,25 @@ export function useStudents() {
             });
           studentsCache = mapped;
           setData(mapped);
-      });
+        });
+    };
+
+    loadStudents();
+
+    const refreshListener = () => loadStudents();
+    const storageListener = (event: StorageEvent) => {
+      if (event.key === storageEventName) {
+        loadStudents();
+      }
+    };
+
+    window.addEventListener(storageEventName, refreshListener);
+    window.addEventListener('storage', storageListener);
+
+    return () => {
+      window.removeEventListener(storageEventName, refreshListener);
+      window.removeEventListener('storage', storageListener);
+    };
   }, []);
 
   return { data, loading };
@@ -359,6 +380,7 @@ export function useInvoices() {
                 const completedPayment = payments.find((p) => p.status === 'completed');
                 return {
                   id: inv.invoice_number as string,
+                  dbId: inv.id as string,
                   studentId: inv.student_id as string,
                   studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
                   studentName: manualBillTo?.name ?? (student?.name ?? ''),
@@ -594,6 +616,78 @@ export function useStudentEnrollments() {
       studentEnrollmentsCache = mapped;
       setData(mapped);
     });
+  }, []);
+
+  return { data, loading };
+}
+
+// ── Invoice Reminders ────────────────────────────────────────────────────────
+
+let remindersCache: InvoiceReminder[] | null = null;
+
+export function useReminders() {
+  const [data, setData] = useState<InvoiceReminder[]>(remindersCache ?? []);
+  const [loading, setLoading] = useState(!remindersCache);
+
+  useEffect(() => {
+    if (!isSupabaseConfigured || !supabase) return;
+    const storageEventName = 'app:invoices:changed';
+
+    const loadReminders = () => {
+      if (!remindersCache) setLoading(true);
+      supabase
+        .from('invoice_reminders')
+        .select(
+          'id, remind_at, note, status, student_id, invoice_id, students(name, phone), invoices(invoice_number, total_amount, balance_amount, notes)'
+        )
+        .eq('status', 'pending')
+        .order('remind_at')
+        .then(({ data: rows, error }) => {
+          setLoading(false);
+          if (error) {
+            reportOperationalError('query.invoice_reminders', 'Failed to load invoice reminders.', error);
+            return;
+          }
+          const r = (rows ?? []) as any[];
+          const mapped = r.map((row) => {
+            const student = row.students as { name: string; phone: string } | null;
+            const invoice = row.invoices as { invoice_number: string; total_amount: number; balance_amount: number; notes: string | null } | null;
+            const manualBillTo = parseManualInvoiceNotes(invoice?.notes);
+            return {
+              id: row.id as string,
+              invoiceId: row.invoice_id as string,
+              invoiceNumber: invoice?.invoice_number ?? '',
+              studentId: row.student_id as string,
+              studentName: manualBillTo?.name ?? (student?.name ?? ''),
+              studentPhone: manualBillTo?.phone ?? (student?.phone ?? ''),
+              totalAmount: invoice?.total_amount ?? 0,
+              balanceAmount: invoice?.balance_amount ?? 0,
+              remindAt: row.remind_at as string,
+              note: (row.note as string | null) ?? undefined,
+              status: row.status as InvoiceReminder['status'],
+            };
+          });
+          remindersCache = mapped;
+          setData(mapped);
+        });
+    };
+
+    loadReminders();
+
+    const refreshListener = () => loadReminders();
+    const storageListener = (event: StorageEvent) => {
+      if (event.key === storageEventName) {
+        loadReminders();
+      }
+    };
+
+    window.addEventListener(storageEventName, refreshListener);
+    window.addEventListener('storage', storageListener);
+
+    return () => {
+      window.removeEventListener(storageEventName, refreshListener);
+      window.removeEventListener('storage', storageListener);
+    };
   }, []);
 
   return { data, loading };

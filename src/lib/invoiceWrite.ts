@@ -22,6 +22,11 @@ type FinalizeInvoiceInput = {
   preferredBranchId?: string | null;
   invoiceDate?: string;
   requestKey?: string;
+  /** Amount actually collected now. Omit (or set equal to totalAmount) for a full payment. */
+  paidAmount?: number;
+  /** Required by the database whenever paidAmount leaves a balance outstanding. */
+  reminderDate?: string;
+  reminderNote?: string;
 };
 
 async function resolveTenantContext(studentId: string, preferredBranchId?: string | null) {
@@ -119,6 +124,9 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     p_preferred_branch_id: branchId,
     p_invoice_date: input.invoiceDate ?? new Date().toISOString().slice(0, 10),
     p_invoice_number: input.requestKey ?? null,
+    p_paid_amount: input.paidAmount ?? null,
+    p_reminder_date: input.reminderDate ?? null,
+    p_reminder_note: input.reminderNote ?? null,
   });
 
   if (error || !data) {
@@ -152,5 +160,47 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
   return {
     invoiceId,
     invoiceNumber,
+  };
+}
+
+export async function recordInvoicePayment(input: {
+  invoiceId: string;
+  amount: number;
+  paymentMethod: PaymentMethod;
+  paymentModeLabel: string;
+}) {
+  if (!isSupabaseConfigured || !supabase) {
+    throw new Error('Supabase is not configured.');
+  }
+
+  const { data, error } = await (supabase as any).rpc('record_invoice_payment', {
+    p_invoice_id: input.invoiceId,
+    p_amount: input.amount,
+    p_payment_method: input.paymentMethod,
+    p_payment_mode_label: input.paymentModeLabel,
+  });
+
+  if (error) {
+    reportOperationalError('rpc.invoice.record_payment', 'record_invoice_payment RPC failed.', error, {
+      invoiceId: input.invoiceId,
+    });
+    throw error;
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:invoices:changed'));
+    try {
+      window.localStorage.setItem('app:invoices:changed', String(Date.now()));
+    } catch {
+      // Ignore storage errors (private mode / disabled storage) because
+      // same-tab event dispatch above is still sufficient.
+    }
+  }
+
+  return {
+    balanceAmount: Number((row as any)?.balance_amount ?? 0),
+    status: (row as any)?.status as 'draft' | 'unpaid' | 'partial' | 'completed' | 'cancelled',
   };
 }

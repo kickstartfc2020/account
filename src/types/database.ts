@@ -526,6 +526,50 @@ export type Database = {
           updated_at?: string;
         };
       };
+      invoice_reminders: {
+        Row: {
+          id: string;
+          organization_id: string;
+          branch_id: string;
+          student_id: string;
+          invoice_id: string;
+          remind_at: string;
+          note: string | null;
+          status: 'pending' | 'resolved';
+          resolved_at: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          organization_id: string;
+          branch_id: string;
+          student_id: string;
+          invoice_id: string;
+          remind_at: string;
+          note?: string | null;
+          status?: 'pending' | 'resolved';
+          resolved_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          organization_id?: string;
+          branch_id?: string;
+          student_id?: string;
+          invoice_id?: string;
+          remind_at?: string;
+          note?: string | null;
+          status?: 'pending' | 'resolved';
+          resolved_at?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       audit_logs: {
         Row: {
           id: number;
@@ -622,6 +666,7 @@ export type Database = {
       payment_status: 'pending' | 'completed' | 'failed' | 'cancelled' | 'refunded';
       payment_method: 'cash' | 'card' | 'upi' | 'online' | 'bank_transfer';
       renewal_status: 'pending' | 'completed' | 'cancelled' | 'overdue';
+      reminder_status: 'pending' | 'resolved';
       audit_action: 'insert' | 'update' | 'cancel' | 'archive' | 'status_change' | 'payment_change';
     };
   };

@@ -352,9 +352,15 @@ export default function Invoices() {
                 <TableCell>
                   <Badge
                     variant="outline"
-                    className={inv.status === 'cancelled' ? 'bg-red-50 text-red-700 border-red-100' : 'bg-emerald-50 text-emerald-700 border-emerald-100'}
+                    className={
+                      inv.status === 'cancelled'
+                        ? 'bg-red-50 text-red-700 border-red-100'
+                        : inv.status === 'partial' || inv.status === 'unpaid'
+                          ? 'bg-amber-50 text-amber-700 border-amber-100'
+                          : 'bg-emerald-50 text-emerald-700 border-emerald-100'
+                    }
                   >
-                    {inv.status === 'cancelled' ? 'Cancelled' : 'Paid'}
+                    {inv.status === 'cancelled' ? 'Cancelled' : inv.status === 'partial' ? 'Partial' : inv.status === 'unpaid' ? 'Unpaid' : 'Paid'}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
