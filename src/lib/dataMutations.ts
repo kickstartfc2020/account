@@ -2,6 +2,17 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 type RecordStatus = 'active' | 'inactive' | 'archived';
 
+function notifyStudentsChanged() {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new Event('app:students:changed'));
+  try {
+    window.localStorage.setItem('app:students:changed', String(Date.now()));
+  } catch {
+    // Ignore storage errors (private mode / disabled storage) because
+    // same-tab event dispatch above is still sufficient.
+  }
+}
+
 async function resolveOrganizationId() {
   if (!supabase) throw new Error('Supabase is not configured.');
 
@@ -193,6 +204,7 @@ export async function createStudent(input: {
       .then(() => {/* ignore */});
   }
 
+  notifyStudentsChanged();
   return created;
 }
 
@@ -218,6 +230,7 @@ export async function updateStudent(input: {
     .eq('organization_id', organizationId);
 
   if (error) throw error;
+  notifyStudentsChanged();
 }
 
 export async function addStudentEnrollment(input: {
@@ -253,6 +266,7 @@ export async function addStudentEnrollment(input: {
 
   const row = Array.isArray(data) ? data[0] : data;
 
+  notifyStudentsChanged();
   return {
     packageId: ((row as { package_id?: string } | null)?.package_id ?? input.packageId),
   };
@@ -269,6 +283,28 @@ export async function archiveStudent(studentId: string) {
     .eq('organization_id', organizationId);
 
   if (error) throw error;
+  notifyStudentsChanged();
+}
+
+export async function rescheduleReminder(reminderId: string, remindAt: string) {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { error } = await (supabase as any).rpc('reschedule_invoice_reminder', {
+    p_reminder_id: reminderId,
+    p_remind_at: remindAt,
+  });
+
+  if (error) throw error;
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('app:invoices:changed'));
+    try {
+      window.localStorage.setItem('app:invoices:changed', String(Date.now()));
+    } catch {
+      // Ignore storage errors (private mode / disabled storage) because
+      // same-tab event dispatch above is still sufficient.
+    }
+  }
 }
 
 export async function deleteStudent(studentId: string) {
@@ -280,4 +316,5 @@ export async function deleteStudent(studentId: string) {
 
   if (error) throw new Error(error.message || 'Failed to delete student.');
   if (!data) throw new Error('Student could not be deleted.');
+  notifyStudentsChanged();
 }

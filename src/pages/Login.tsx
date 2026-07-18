@@ -3,16 +3,20 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/auth/AuthProvider';
+
+const REMEMBERED_EMAIL_KEY = 'kickstart:rememberedEmail';
 
 export default function Login() {
   const navigate = useNavigate();
   const { user, role, isConfigured, loading } = useAuth();
 
-  const [email, setEmail] = React.useState('');
+  const [email, setEmail] = React.useState(() => localStorage.getItem(REMEMBERED_EMAIL_KEY) ?? '');
   const [password, setPassword] = React.useState('');
+  const [rememberMe, setRememberMe] = React.useState(() => Boolean(localStorage.getItem(REMEMBERED_EMAIL_KEY)));
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -43,6 +47,12 @@ export default function Login() {
       return;
     }
 
+    if (rememberMe) {
+      localStorage.setItem(REMEMBERED_EMAIL_KEY, email);
+    } else {
+      localStorage.removeItem(REMEMBERED_EMAIL_KEY);
+    }
+
     navigate('/', { replace: true });
   };
 
@@ -65,6 +75,7 @@ export default function Login() {
               <label className="text-xs font-bold uppercase tracking-wider text-gray-500">Email</label>
               <Input
                 type="email"
+                name="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -77,6 +88,7 @@ export default function Login() {
               <label className="text-xs font-bold uppercase tracking-wider text-gray-500">Password</label>
               <Input
                 type="password"
+                name="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -84,6 +96,14 @@ export default function Login() {
                 autoComplete="current-password"
               />
             </div>
+
+            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+              <Checkbox
+                checked={rememberMe}
+                onCheckedChange={(checked) => setRememberMe(checked === true)}
+              />
+              Remember my email on this browser
+            </label>
 
             {error ? <p className="text-sm text-red-600">{error}</p> : null}
 

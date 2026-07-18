@@ -35,6 +35,7 @@ const BranchDetails = React.lazy(() => import('./pages/super-admin/BranchDetails
 const InvoicesOverview = React.lazy(() => import('./pages/super-admin/InvoicesOverview'));
 const SuperAdminReports = React.lazy(() => import('./pages/super-admin/SuperAdminReports'));
 const CreateInvoice = React.lazy(() => import('./pages/CreateInvoice'));
+const ManualInvoicePending = React.lazy(() => import('./pages/ManualInvoicePending'));
 const ViewInvoice = React.lazy(() => import('./pages/ViewInvoice'));
 const HealthConfig = React.lazy(() => import('./pages/HealthConfig'));
 
@@ -68,6 +69,7 @@ function AppLayout() {
               <Route path="/renewals" element={<Renewals />} />
               <Route path="/invoices" element={<Invoices />} />
               <Route path="/invoices/create" element={<CreateInvoice />} />
+              <Route path="/invoices/pending" element={<ManualInvoicePending />} />
               <Route path="/invoices/view/:id" element={<ViewInvoice />} />
               <Route path="/reports" element={<Reports />} />
               <Route path="/settings" element={<Settings />} />

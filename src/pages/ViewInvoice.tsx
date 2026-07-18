@@ -20,7 +20,7 @@ import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
 import { buildInvoicePdfBlob, downloadPdfBlob } from '@/lib/invoiceExport';
 import { cancelInvoice, updateInvoiceDate } from '@/lib/invoiceMutations';
-import { formatDateDMY } from '@/lib/utils';
+import { cn, formatDateDMY } from '@/lib/utils';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import type { Invoice } from '@/types';
 import { parseManualInvoiceNotes } from '@/lib/manualInvoice';
@@ -41,6 +41,7 @@ function mapInvoiceRowToInvoice(row: any): Invoice {
 
   return {
     id: row.invoice_number as string,
+    dbId: row.id as string,
     studentId: row.student_id as string,
     studentRefId: manualBillTo ? undefined : (student?.ref_id ?? undefined),
     studentName: manualBillTo?.name ?? (student?.name ?? ''),
@@ -699,8 +700,17 @@ export default function ViewInvoice() {
                   </div>
                   <div className="flex justify-between items-center text-sm">
                     <span className="text-gray-500 font-medium">Payment Status</span>
-                    <Badge className={invoiceStatus === 'cancelled' ? 'font-bold border uppercase text-[10px] tracking-wider px-3 bg-red-100 text-red-700 border-red-200' : 'font-bold border uppercase text-[10px] tracking-wider px-3 bg-emerald-100 text-emerald-700 border-emerald-200'}>
-                      {invoiceStatus === 'cancelled' ? 'Cancelled' : 'Paid'}
+                    <Badge
+                      className={cn(
+                        'font-bold border uppercase text-[10px] tracking-wider px-3',
+                        invoiceStatus === 'cancelled'
+                          ? 'bg-red-100 text-red-700 border-red-200'
+                          : invoiceStatus === 'partial' || invoiceStatus === 'unpaid'
+                            ? 'bg-amber-100 text-amber-700 border-amber-200'
+                            : 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                      )}
+                    >
+                      {invoiceStatus === 'cancelled' ? 'Cancelled' : invoiceStatus === 'partial' ? 'Partial' : invoiceStatus === 'unpaid' ? 'Unpaid' : 'Paid'}
                     </Badge>
                   </div>
                   <div className="flex justify-between items-center text-sm">
@@ -799,6 +809,12 @@ export default function ViewInvoice() {
                     </div>
                     <span className="text-xl font-display font-bold text-[#1A3C34] tracking-tight">₹{fmt(invoice.total)}</span>
                   </div>
+                  {invoice.balanceAmount > 0 && (
+                    <div className="flex justify-between text-sm pt-2">
+                      <span className="text-rose-500 font-bold uppercase tracking-widest text-[9px]">Balance Due</span>
+                      <span className="font-bold text-rose-600 text-right">₹{fmt(invoice.balanceAmount)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

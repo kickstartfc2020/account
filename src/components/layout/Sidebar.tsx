@@ -1,17 +1,18 @@
 import React from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { 
+import {
   Building2,
-  LayoutDashboard, 
-  Trophy, 
-  CreditCard, 
-  Users, 
-  RefreshCcw, 
-  Receipt, 
-  BarChart3, 
-  Settings, 
+  LayoutDashboard,
+  Trophy,
+  CreditCard,
+  Users,
+  RefreshCcw,
+  Receipt,
+  BarChart3,
+  Settings,
   LogOut,
-  User
+  User,
+  AlarmClock
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -35,6 +36,7 @@ const branchAdminItems = [
   { icon: Users, label: 'Students', path: '/students' },
   { icon: RefreshCcw, label: 'Renewals', path: '/renewals' },
   { icon: Receipt, label: 'Invoices', path: '/invoices' },
+  { icon: AlarmClock, label: 'Manual Invoice Pending', path: '/invoices/pending' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },
   { icon: Settings, label: 'Settings', path: '/settings' },
 ];
