@@ -16,6 +16,8 @@ type FinalizeInvoiceInput = {
   taxTotal: number;
   totalAmount: number;
   gstPercent: number;
+  /** Whether subtotal/manual item prices already include GST (back-calculated) vs GST added on top. */
+  gstInclusive: boolean;
   paymentMethod: PaymentMethod;
   paymentModeLabel: string;
   manualItems?: ManualInvoiceItem[];
@@ -118,6 +120,7 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     p_tax_total: input.taxTotal,
     p_total_amount: input.totalAmount,
     p_gst_percent: input.gstPercent,
+    p_gst_inclusive: input.gstInclusive,
     p_payment_method: input.paymentMethod,
     p_payment_mode_label: input.paymentModeLabel,
     p_manual_items: input.manualItems ?? null,

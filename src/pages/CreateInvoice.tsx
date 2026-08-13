@@ -23,6 +23,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Dialog,
   DialogContent,
@@ -87,6 +88,7 @@ export default function CreateInvoice() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [paymentMode, setPaymentMode] = React.useState('QR');
   const [gstRate, setGstRate] = React.useState(defaultGstRatePercentage);
+  const [gstInclusive, setGstInclusive] = React.useState(!isManualMode);
   const [isGenerated, setIsGenerated] = React.useState(false);
   const [generatedInvoiceNumber, setGeneratedInvoiceNumber] = React.useState('');
   const [isSaving, setIsSaving] = React.useState(false);
@@ -110,6 +112,9 @@ export default function CreateInvoice() {
   const [manualStudentSearch, setManualStudentSearch] = React.useState('');
   const [showManualStudentDropdown, setShowManualStudentDropdown] = React.useState(false);
   const manualSearchRef = React.useRef<HTMLDivElement>(null);
+  const [phoneMatchStudent, setPhoneMatchStudent] = React.useState<{ id: string; name: string; email: string; phone: string; locationId: string } | null>(null);
+  const [isPhoneMatchDialogOpen, setIsPhoneMatchDialogOpen] = React.useState(false);
+  const dismissedPhoneMatchRef = React.useRef<string | null>(null);
   const [manualFieldErrors, setManualFieldErrors] = React.useState<{
     name?: string;
     email?: string;
@@ -149,19 +154,11 @@ export default function CreateInvoice() {
   }, [requestKeyStorageKey]);
   
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
-  const selectedStudentForWrite = isManualMode ? (selectedStudent ?? students[0] ?? null) : selectedStudent;
+  const selectedStudentForWrite = selectedStudent ?? null;
 
+  // Reset student selection when sport or mode changes so previous selection never bleeds through
   React.useEffect(() => {
-    if (isManualMode && !selectedStudentId && students.length > 0) {
-      setSelectedStudentId(students[0].id);
-    }
-  }, [isManualMode, selectedStudentId, students]);
-
-  // Reset student selection when sport changes so previous selection never bleeds through
-  React.useEffect(() => {
-    if (!isManualMode) {
-      setSelectedStudentId(null);
-    }
+    setSelectedStudentId(null);
   }, [activeSportId, isManualMode]);
 
   const formatSafeDate = React.useCallback((value: string | null | undefined) => formatDateDMY(value, '—'), []);
@@ -240,6 +237,26 @@ export default function CreateInvoice() {
     ).slice(0, 8);
   }, [students, manualStudentSearch]);
 
+  const handleManualPhoneBlur = React.useCallback(() => {
+    if (!isManualMode) return;
+    const typedPhone = manualCustomerPhone.trim();
+    if (!isValidIndianPhone(typedPhone)) return;
+    if (selectedStudent && selectedStudent.phone.trim() === typedPhone) return;
+    if (dismissedPhoneMatchRef.current === typedPhone) return;
+
+    const match = students.find((s) => s.phone.trim() === typedPhone);
+    if (!match) return;
+
+    setPhoneMatchStudent({
+      id: match.id,
+      name: match.name,
+      email: match.email,
+      phone: match.phone,
+      locationId: match.locationId,
+    });
+    setIsPhoneMatchDialogOpen(true);
+  }, [isManualMode, manualCustomerPhone, selectedStudent, students]);
+
   const studentPayments = invoices.filter(inv => inv.studentId === selectedStudentId);
   const branch =
     locations.find((location) => location.id === selectedStudentForWrite?.locationId) ??
@@ -307,7 +324,7 @@ export default function CreateInvoice() {
       gstRate,
       academyCode: academy.code,
       invoiceCount: currentInvoiceCount,
-      isGstInclusive: !isManualMode,
+      isGstInclusive: gstInclusive,
     });
 
   const handlePrint = () => {
@@ -487,20 +504,44 @@ export default function CreateInvoice() {
             locationId: existingByPhone.locationId,
           } as typeof selectedStudent;
         } else {
-          const createdStudent = await createStudent({
-            name: manualCustomerName.trim() || 'Walk-in Customer',
-            phone: manualCustomerPhone.trim(),
-            email: manualCustomerEmail.trim(),
-            sportId: sportForWrite.id,
-            packageId: packageForWrite.id,
-            branchId: branchForManualInvoice,
-          });
+          try {
+            const createdStudent = await createStudent({
+              name: manualCustomerName.trim() || 'Walk-in Customer',
+              phone: manualCustomerPhone.trim(),
+              email: manualCustomerEmail.trim(),
+              sportId: sportForWrite.id,
+              packageId: packageForWrite.id,
+              branchId: branchForManualInvoice,
+            });
 
-          setSelectedStudentId(createdStudent.id);
-          studentForWrite = {
-            id: createdStudent.id,
-            locationId: createdStudent.branch_id,
-          } as typeof selectedStudent;
+            setSelectedStudentId(createdStudent.id);
+            studentForWrite = {
+              id: createdStudent.id,
+              locationId: createdStudent.branch_id,
+            } as typeof selectedStudent;
+          } catch (createError) {
+            // Someone else (or a stale local cache) already created a student with this
+            // phone number between our lookup above and this insert — fall back to it
+            // instead of failing, since students.phone is unique per organization.
+            const isDuplicatePhone =
+              typeof createError === 'object' && createError !== null &&
+              'code' in createError && (createError as { code?: unknown }).code === '23505';
+            if (!isDuplicatePhone || !supabase) throw createError;
+
+            const { data: existing, error: lookupError } = await supabase
+              .from('students')
+              .select('id, branch_id')
+              .eq('phone', manualCustomerPhone.trim())
+              .maybeSingle();
+            if (lookupError || !existing) throw createError;
+
+            const existingRow = existing as { id: string; branch_id: string };
+            setSelectedStudentId(existingRow.id);
+            studentForWrite = {
+              id: existingRow.id,
+              locationId: existingRow.branch_id,
+            } as typeof selectedStudent;
+          }
         }
       } catch (error) {
         const message = error instanceof Error
@@ -578,6 +619,7 @@ export default function CreateInvoice() {
         taxTotal: taxAmount,
         totalAmount: total,
         gstPercent: parseFloat(gstRate),
+        gstInclusive,
         paymentMethod: mapPaymentMethod(paymentMode),
         paymentModeLabel: paymentMode,
         manualItems: isManualMode ? validManualItems : undefined,
@@ -752,9 +794,11 @@ export default function CreateInvoice() {
                             setManualCustomerName(s.name);
                             setManualCustomerPhone(s.phone);
                             setManualCustomerEmail(s.email ?? '');
+                            setSelectedStudentId(s.id);
+                            dismissedPhoneMatchRef.current = null;
                             setManualStudentSearch('');
                             setShowManualStudentDropdown(false);
-                            setManualFieldErrors((prev) => ({ ...prev, name: undefined }));
+                            setManualFieldErrors((prev) => ({ ...prev, name: undefined, phone: undefined }));
                             setIsGenerated(false);
                           }}
                         >
@@ -788,7 +832,21 @@ export default function CreateInvoice() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold uppercase text-gray-500">Phone Number <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></label>
-                  <Input value={manualCustomerPhone} onChange={(e) => { setManualCustomerPhone(e.target.value); setManualFieldErrors((prev) => ({ ...prev, phone: undefined })); setIsGenerated(false); }} placeholder="10-digit phone number" className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.phone && "border-red-400 focus:ring-red-400")} />
+                  <Input
+                    value={manualCustomerPhone}
+                    onChange={(e) => {
+                      setManualCustomerPhone(e.target.value);
+                      setManualFieldErrors((prev) => ({ ...prev, phone: undefined }));
+                      setIsGenerated(false);
+                      // Editing away from the matched number means this is no longer that customer.
+                      if (selectedStudentId && e.target.value.trim() !== selectedStudent?.phone.trim()) {
+                        setSelectedStudentId(null);
+                      }
+                    }}
+                    onBlur={handleManualPhoneBlur}
+                    placeholder="10-digit phone number"
+                    className={cn("h-11 border-gray-200 focus:ring-indigo-500", manualFieldErrors.phone && "border-red-400 focus:ring-red-400")}
+                  />
                   {manualFieldErrors.phone && <p className="text-[11px] text-red-500">{manualFieldErrors.phone}</p>}
                 </div>
                 <div className="space-y-1.5">
@@ -875,7 +933,7 @@ export default function CreateInvoice() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">
-                    {isManualMode ? 'Base Amount (₹)' : 'Amount (₹, incl. GST)'}{!isManualMode && selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
+                    {gstInclusive ? 'Amount (₹, incl. GST)' : 'Base Amount (₹, excl. GST)'}{!isManualMode && selectedStudent && <span className="ml-1 text-gray-400 normal-case">max ₹{allowedBaseAmount.toLocaleString()}</span>}
                   </label>
                   <Input 
                     type="number" 
@@ -896,7 +954,9 @@ export default function CreateInvoice() {
                     className={cn("bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime", amountExceedsAllowedAmount && "border-red-400 focus:ring-red-400")}
                   />
                   {isManualMode && (
-                    <p className="text-[10px] text-gray-500">Auto-calculated from manual items.</p>
+                    <p className="text-[10px] text-gray-500">
+                      Auto-calculated from manual items. Item rates are treated as {gstInclusive ? 'GST-inclusive' : 'base amounts (excl. GST)'}.
+                    </p>
                   )}
                 </div>
                 <div className="space-y-2">
@@ -1069,7 +1129,21 @@ export default function CreateInvoice() {
                 </div>
               </div>
 
-              <Button 
+              <label className="flex items-center gap-2 cursor-pointer w-fit">
+                <Checkbox
+                  checked={gstInclusive}
+                  onCheckedChange={(checked) => {
+                    setGstInclusive(checked === true);
+                    setIsGenerated(false);
+                  }}
+                />
+                <span className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Inclusive of GST</span>
+                <span className="text-[10px] text-gray-400 normal-case">
+                  {gstInclusive ? 'Entered amount already includes GST' : 'GST will be added on top of the entered amount'}
+                </span>
+              </label>
+
+              <Button
                 className="w-full bg-kickstart-forest hover:bg-kickstart-forest/90 shadow-lg shadow-kickstart-forest/10 h-12 font-bold text-xs uppercase tracking-wider"
                 onClick={() => void handleFinalizeInvoice()}
                 disabled={finalizeDisabled}
@@ -1430,6 +1504,61 @@ export default function CreateInvoice() {
         </div>
       </div>
     </div>
+
+    <Dialog
+      open={isPhoneMatchDialogOpen}
+      onOpenChange={(open) => {
+        setIsPhoneMatchDialogOpen(open);
+        if (!open && phoneMatchStudent) {
+          dismissedPhoneMatchRef.current = phoneMatchStudent.phone.trim();
+        }
+      }}
+    >
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>Customer already exists</DialogTitle>
+          <DialogDescription>
+            A customer with this phone number is already on file. You can raise a new invoice for
+            them without creating a duplicate customer record.
+          </DialogDescription>
+        </DialogHeader>
+        {phoneMatchStudent && (
+          <div className="rounded-xl border border-gray-100 bg-gray-50 p-4 space-y-1">
+            <p className="text-sm font-bold text-gray-900">{phoneMatchStudent.name}</p>
+            {phoneMatchStudent.email && <p className="text-xs text-gray-500">{phoneMatchStudent.email}</p>}
+            <p className="text-xs text-gray-500">{phoneMatchStudent.phone}</p>
+          </div>
+        )}
+        <DialogFooter className="gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              if (phoneMatchStudent) {
+                dismissedPhoneMatchRef.current = phoneMatchStudent.phone.trim();
+              }
+              setIsPhoneMatchDialogOpen(false);
+            }}
+          >
+            Enter As New Customer
+          </Button>
+          <Button
+            className="bg-kickstart-forest hover:bg-kickstart-forest/90"
+            onClick={() => {
+              if (phoneMatchStudent) {
+                setManualCustomerName(phoneMatchStudent.name);
+                setManualCustomerEmail(phoneMatchStudent.email);
+                setManualCustomerPhone(phoneMatchStudent.phone);
+                setSelectedStudentId(phoneMatchStudent.id);
+                setManualFieldErrors((prev) => ({ ...prev, name: undefined, phone: undefined }));
+              }
+              setIsPhoneMatchDialogOpen(false);
+            }}
+          >
+            Use This Customer
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog
       open={isQrPaymentDialogOpen}
