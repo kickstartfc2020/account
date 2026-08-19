@@ -297,7 +297,7 @@ export function useStudents() {
                 id: s.id as string,
                 refId: (s.ref_id ?? '') as string,
                 name: s.name as string,
-                phone: s.phone as string,
+                phone: (s.phone ?? '') as string,
                 email: (s.email ?? '') as string,
                 locationId: s.branch_id as string,
                 locationName: branch?.name ?? '',

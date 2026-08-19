@@ -158,7 +158,7 @@ export async function archivePackage(packageId: string) {
 
 export async function createStudent(input: {
   name: string;
-  phone: string;
+  phone?: string;
   email: string;
   sportId: string;
   packageId: string;
@@ -182,7 +182,7 @@ export async function createStudent(input: {
       branch_id: branchId,
       current_package_id: input.packageId,
       name: input.name.trim(),
-      phone: input.phone.trim(),
+      phone: input.phone?.trim() || null,
       email: input.email.trim() || null,
       status: 'active',
     })
@@ -211,7 +211,7 @@ export async function createStudent(input: {
 export async function updateStudent(input: {
   id: string;
   name: string;
-  phone: string;
+  phone?: string;
   email: string;
   packageId: string;
 }) {
@@ -222,7 +222,7 @@ export async function updateStudent(input: {
   const { error } = await studentsTable
     .update({
       name: input.name.trim(),
-      phone: input.phone.trim(),
+      phone: input.phone?.trim() || null,
       email: input.email.trim() || null,
       current_package_id: input.packageId,
     })
