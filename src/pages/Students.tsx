@@ -125,7 +125,6 @@ export default function Students() {
   }, [packages, newStudent.packageId]);
 
   const normalizePhone = (value: string) => value.replace(/\D/g, '');
-  const normalizedNewPhone = normalizePhone(newStudent.phone);
   const normalizedNewEmail = newStudent.email.trim().toLowerCase();
 
   const existingStudentMatches = React.useMemo(() => {
@@ -221,9 +220,6 @@ export default function Students() {
     if (!newStudent.packageId) {
       nextErrors.packageId = 'Batch is required.';
     }
-    if (!selectedExistingStudent && !newStudent.phone.trim()) {
-      nextErrors.phone = 'Phone number is required.';
-    }
 
     if (Object.keys(nextErrors).length > 0) {
       setAddStudentErrors(nextErrors);
@@ -233,28 +229,9 @@ export default function Students() {
 
     setAddStudentErrors({});
 
-    const duplicatePhoneStudent = studentRows.find((student) => {
-      const samePhone = normalizePhone(student.phone) === normalizedNewPhone;
-      return samePhone && student.id !== selectedExistingStudent?.id;
-    });
-
     const duplicateEmailStudent = normalizedNewEmail
       ? studentRows.find((student) => student.email.trim().toLowerCase() === normalizedNewEmail && student.id !== selectedExistingStudent?.id)
       : null;
-
-    if (!selectedExistingStudent && duplicatePhoneStudent) {
-      setAddStudentErrors((prev) => ({ ...prev, phone: 'Phone number already exists for another student.' }));
-      setSelectedExistingStudentId(duplicatePhoneStudent.id);
-      setExistingStudentSearch(duplicatePhoneStudent.phone);
-      setNewStudent((prev) => ({
-        ...prev,
-        name: duplicatePhoneStudent.name,
-        phone: duplicatePhoneStudent.phone,
-        email: duplicatePhoneStudent.email || '',
-      }));
-      toast.info('Phone number already exists. Loaded the existing student so you can update the batch instead.');
-      return;
-    }
 
     if (duplicateEmailStudent) {
       setAddStudentErrors((prev) => ({ ...prev, email: 'Email already exists for another student.' }));
@@ -717,7 +694,7 @@ export default function Students() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-2">
-                    <Label htmlFor="add-phone" className="text-xs font-bold uppercase text-slate-500">Phone Number <span className="ml-0.5 text-sm font-black leading-none text-red-500">*</span></Label>
+                    <Label htmlFor="add-phone" className="text-xs font-bold uppercase text-slate-500">Phone Number</Label>
                     <div className="relative">
                       <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                       <Input 

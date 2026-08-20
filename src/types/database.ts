@@ -250,7 +250,7 @@ export type Database = {
           branch_id: string;
           current_package_id: string | null;
           name: string;
-          phone: string;
+          phone: string | null;
           email: string | null;
           joined_at: string;
           status: 'active' | 'inactive' | 'archived';
@@ -266,7 +266,7 @@ export type Database = {
           branch_id: string;
           current_package_id?: string | null;
           name: string;
-          phone: string;
+          phone?: string | null;
           email?: string | null;
           joined_at?: string;
           status?: 'active' | 'inactive' | 'archived';
@@ -282,7 +282,7 @@ export type Database = {
           branch_id?: string;
           current_package_id?: string | null;
           name?: string;
-          phone?: string;
+          phone?: string | null;
           email?: string | null;
           joined_at?: string;
           status?: 'active' | 'inactive' | 'archived';
