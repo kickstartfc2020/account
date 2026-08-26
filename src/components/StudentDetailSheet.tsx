@@ -163,6 +163,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
       showNextRenewal: boolean;
       paidTillNow: number;
       totalDiscountGiven: number;
+      previousReceivedAmount: number;
       amountPending: number;
     }> = [];
 
@@ -191,6 +192,11 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
 
       let paidTillNow: number;
       let amountPending: number;
+      // Previous received amount is tracked once per student (not per batch), so it
+      // only applies against their current package's pending balance.
+      const previousReceivedAmount = (!isManual && enrollment.packageId === student.packageId)
+        ? (student.previousReceivedAmount ?? 0)
+        : 0;
 
       if (isManual) {
         paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + Math.max(invoice.total - invoice.balanceAmount, 0), 0);
@@ -199,7 +205,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
         paidTillNow = matchingInvoices.reduce((sum, invoice) => sum + invoice.total, 0);
         // Use the price locked at enrollment time; fall back to current package price.
         const packagePrice = enrollment.price > 0 ? enrollment.price : (packageDetails?.price ?? 0);
-        amountPending = Math.max(packagePrice - paidTillNow - totalDiscountGiven, 0);
+        amountPending = Math.max(packagePrice - paidTillNow - totalDiscountGiven - previousReceivedAmount, 0);
       }
 
       summaries.push({
@@ -213,6 +219,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
         showNextRenewal,
         paidTillNow,
         totalDiscountGiven,
+        previousReceivedAmount,
         amountPending,
       });
     });
@@ -224,7 +231,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
 
       return a.packageName.localeCompare(b.packageName);
     });
-  }, [student.joinedAt, student.packageId, student.packageName, student.sportName, studentEnrollments, allPackages, activeStudentInvoices]);
+  }, [student.joinedAt, student.packageId, student.packageName, student.sportName, student.previousReceivedAmount, studentEnrollments, allPackages, activeStudentInvoices]);
 
   const isControlled = open !== undefined;
 
@@ -341,6 +348,12 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
                           <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Amount Pending</p>
                           <p className="text-base font-display font-bold text-rose-500 mt-1">₹{summary.amountPending.toLocaleString('en-IN')}</p>
                         </div>
+                        {summary.previousReceivedAmount > 0 && (
+                          <div className="col-span-2">
+                            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Previous Received Amount</p>
+                            <p className="text-base font-display font-bold text-indigo-600 mt-1">₹{summary.previousReceivedAmount.toLocaleString('en-IN')}</p>
+                          </div>
+                        )}
                         {summary.totalDiscountGiven > 0 && (
                           <div className="col-span-2">
                             <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Discount Given</p>

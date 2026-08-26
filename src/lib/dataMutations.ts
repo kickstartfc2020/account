@@ -233,6 +233,20 @@ export async function updateStudent(input: {
   notifyStudentsChanged();
 }
 
+export async function updateStudentPreviousReceivedAmount(studentId: string, previousReceivedAmount: number) {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const organizationId = await resolveOrganizationId();
+  const studentsTable = supabase.from('students') as any;
+  const { error } = await studentsTable
+    .update({ previous_received_amount: Math.max(0, previousReceivedAmount) })
+    .eq('id', studentId)
+    .eq('organization_id', organizationId);
+
+  if (error) throw error;
+  notifyStudentsChanged();
+}
+
 export async function addStudentEnrollment(input: {
   studentId: string;
   packageId: string;
