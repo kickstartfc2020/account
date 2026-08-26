@@ -71,6 +71,7 @@ export interface Student {
   joinedAt: string;
   enrolledPrice?: number;
   enrolledTaxPercent?: number;
+  previousReceivedAmount?: number;
 }
 
 export interface Invoice {

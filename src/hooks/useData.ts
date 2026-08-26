@@ -266,7 +266,7 @@ export function useStudents() {
       supabase
         .from('students')
         .select(
-          'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, enrolled_price, enrolled_tax_percent, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
+          'id, ref_id, branch_id, current_package_id, name, phone, email, joined_at, status, enrolled_price, enrolled_tax_percent, previous_received_amount, branches(name), packages(id, name, sport_id, sports(name)), renewals(cycle_end, status)'
         )
         .is('archived_at', null)
         .order('name')
@@ -310,6 +310,7 @@ export function useStudents() {
                 joinedAt: s.joined_at as string,
                 enrolledPrice: s.enrolled_price != null ? Number(s.enrolled_price) : undefined,
                 enrolledTaxPercent: s.enrolled_tax_percent != null ? Number(s.enrolled_tax_percent) : undefined,
+                previousReceivedAmount: s.previous_received_amount != null ? Number(s.previous_received_amount) : 0,
               };
             });
           studentsCache = mapped;

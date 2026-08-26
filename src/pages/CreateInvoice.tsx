@@ -44,7 +44,7 @@ import { formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
-import { createPackage, createSport, createStudent } from '@/lib/dataMutations';
+import { createPackage, createSport, createStudent, updateStudentPreviousReceivedAmount } from '@/lib/dataMutations';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { serializeManualInvoiceNotes } from '@/lib/manualInvoice';
@@ -99,6 +99,7 @@ export default function CreateInvoice() {
   const [partialReminderNote, setPartialReminderNote] = React.useState('');
   const [amount, setAmount] = React.useState<string>('0');
   const [discount, setDiscount] = React.useState<string>('0');
+  const [previousReceivedAmount, setPreviousReceivedAmount] = React.useState<string>('0');
   const [currentBranchId, setCurrentBranchId] = React.useState<string | null>(null);
   const [invoiceDate, setInvoiceDate] = React.useState<string>(() => new Date().toISOString().slice(0, 10));
   const [manualItems, setManualItems] = React.useState<DraftManualItem[]>([
@@ -221,7 +222,8 @@ export default function CreateInvoice() {
       const pkg = packages.find((p) => p.id === student.packageId);
       if (!pkg) return;
       const enrolledPrice = student.enrolledPrice ?? pkg.price;
-      if ((totalInvoiced.get(studentId) ?? 0) < enrolledPrice) {
+      const netPrice = Math.max(0, enrolledPrice - (student.previousReceivedAmount ?? 0));
+      if ((totalInvoiced.get(studentId) ?? 0) < netPrice) {
         map.set(studentId, 'pending');
       }
     });
@@ -278,16 +280,19 @@ export default function CreateInvoice() {
   const outstandingBalanceAmount = activeStudentInvoices.reduce((sum, inv) => sum + Math.max(0, inv.balanceAmount ?? 0), 0);
   const totalInvoicedSubtotal = activeStudentInvoices.reduce((sum, inv) => sum + (inv.amount ?? 0), 0);
   const currentInvoiceCount = invoices.length;
+  const previousReceivedAmountValue = Math.max(0, parseFloat(previousReceivedAmount || '0') || 0);
   const allowedBaseAmount = React.useMemo(() => {
     if (isManualMode) return Number.MAX_SAFE_INTEGER;
     if (!effectivePackage) return 0;
     // Use the price locked at enrollment time, not the current (possibly changed) package price.
     const packagePrice = selectedStudent?.enrolledPrice ?? effectivePackage.price;
+    // Deduct installments the student already paid before this system tracked their invoices.
+    const netPackagePrice = Math.max(0, packagePrice - previousReceivedAmountValue);
     if (outstandingBalanceAmount > 0) {
-      return Math.min(outstandingBalanceAmount, packagePrice);
+      return Math.min(outstandingBalanceAmount, netPackagePrice);
     }
-    return Math.max(0, packagePrice - totalInvoicedSubtotal);
-  }, [outstandingBalanceAmount, totalInvoicedSubtotal, effectivePackage, isManualMode, selectedStudent]);
+    return Math.max(0, netPackagePrice - totalInvoicedSubtotal);
+  }, [outstandingBalanceAmount, totalInvoicedSubtotal, effectivePackage, isManualMode, selectedStudent, previousReceivedAmountValue]);
   // Derived for UI messaging only — not used as a gate
   const hasFullyPaidInvoice = !isManualMode && allowedBaseAmount === 0 && activeStudentInvoices.length > 0;
   const amountExceedsAllowedAmount = isManualMode ? false : parseFloat(amount || '0') > allowedBaseAmount;
@@ -297,6 +302,10 @@ export default function CreateInvoice() {
       setAmount(allowedBaseAmount.toString());
     }
   }, [selectedStudentId, allowedBaseAmount, selectedStudent, isManualMode, isGenerated]);
+
+  React.useEffect(() => {
+    setPreviousReceivedAmount(String(selectedStudent?.previousReceivedAmount ?? 0));
+  }, [selectedStudentId, selectedStudent]);
 
   const validManualItems = React.useMemo(() => {
     return manualItems
@@ -631,6 +640,16 @@ export default function CreateInvoice() {
         reminderNote: opts.reminderNote,
       });
 
+      if (!isManualMode && previousReceivedAmountValue !== (selectedStudent?.previousReceivedAmount ?? 0)) {
+        try {
+          await updateStudentPreviousReceivedAmount(studentForWrite.id, previousReceivedAmountValue);
+        } catch (error) {
+          reportOperationalError('invoice.previous_received_amount', 'Failed to save previous received amount.', error, {
+            studentId: studentForWrite.id,
+          });
+        }
+      }
+
       if (isManualMode && supabase) {
         const manualNotes = serializeManualInvoiceNotes({
           name: manualCustomerName.trim(),
@@ -961,9 +980,9 @@ export default function CreateInvoice() {
                 </div>
                 <div className="space-y-2">
                   <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">Discount (₹)</label>
-                  <Input 
-                    type="number" 
-                    value={discount} 
+                  <Input
+                    type="number"
+                    value={discount}
                     onChange={(e) => {
                       setDiscount(e.target.value);
                       setIsGenerated(false);
@@ -972,6 +991,28 @@ export default function CreateInvoice() {
                   />
                 </div>
               </div>
+
+              {!isManualMode && selectedStudent && (
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase text-kickstart-forest opacity-70">
+                    Previous Received Amount (₹)
+                    <span className="ml-1 text-gray-400 normal-case">installments paid before this system</span>
+                  </label>
+                  <Input
+                    type="number"
+                    min="0"
+                    value={previousReceivedAmount}
+                    onChange={(e) => {
+                      setPreviousReceivedAmount(e.target.value);
+                      setIsGenerated(false);
+                    }}
+                    className="bg-white border-kickstart-lime/20 h-10 focus:ring-kickstart-lime"
+                  />
+                  <p className="text-[10px] text-gray-500">
+                    Deducted from the batch package price so the remaining payable amount stays accurate. Saved to the student's profile.
+                  </p>
+                </div>
+              )}
 
               {isManualMode && (
                 <div className="space-y-3">
