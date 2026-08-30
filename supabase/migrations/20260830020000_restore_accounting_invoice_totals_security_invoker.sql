@@ -1,0 +1,18 @@
+-- public.accounting_invoice_totals was originally created (20260616000000)
+-- WITH (security_invoker = on), so it runs as the querying user and the
+-- invoices RLS policies (invoices_select_policy: super_admin sees all,
+-- organization_admin only their org, branch_manager only their branch)
+-- apply to it normally.
+--
+-- 20260625122623_diff5.sql dropped and recreated this view (to change the
+-- underlying invoices columns after a cgst/sgst cleanup) without repeating
+-- that WITH clause, silently reverting it to definer-security: the view has
+-- run as its owner (postgres) ever since, bypassing RLS entirely. Since the
+-- view is also granted to anon and authenticated (public schema, exposed
+-- via the Data API), this let any signed-in user -- and any anonymous
+-- caller -- read invoice_count/total_billed/total_pending/total_collected
+-- for every organization and branch, not just their own.
+--
+-- Fix: restore security_invoker so the view goes back to enforcing RLS via
+-- the querying user's own permissions, matching the original baseline.
+alter view "public"."accounting_invoice_totals" set ("security_invoker" = 'on');
