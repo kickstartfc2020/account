@@ -53,7 +53,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Package } from '@/types';
 import { cn } from '@/lib/utils';
-import { createPackage, updatePackage, archivePackage } from '@/lib/dataMutations';
+import { createPackage, updatePackage, archivePackage, deletePackage } from '@/lib/dataMutations';
 import { normalizePackageDuration, type RecurringInterval } from '@/lib/packageDuration';
 import { reportOperationalError } from '@/lib/observability';
 
@@ -69,9 +69,12 @@ export default function Packages() {
   const [isAddOpen, setIsAddOpen] = React.useState(false);
   const [isEditOpen, setIsEditOpen] = React.useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = React.useState(false);
+  const [isPermanentDeleteOpen, setIsPermanentDeleteOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const [isArchiving, setIsArchiving] = React.useState(false);
-  
+  const [isDeletingPermanently, setIsDeletingPermanently] = React.useState(false);
+  const [permanentDeleteError, setPermanentDeleteError] = React.useState<string | null>(null);
+
   const [editingPackage, setEditingPackage] = React.useState<Package | null>(null);
   const [deletingPackage, setDeletingPackage] = React.useState<Package | null>(null);
   const [newSportId, setNewSportId] = React.useState('');
@@ -182,6 +185,12 @@ export default function Packages() {
     setIsDeleteOpen(true);
   };
 
+  const handlePermanentDeleteClick = (pkg: Package) => {
+    setDeletingPackage(pkg);
+    setPermanentDeleteError(null);
+    setIsPermanentDeleteOpen(true);
+  };
+
   const handleUpdate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!editingPackage) return;
@@ -253,6 +262,26 @@ export default function Packages() {
       toast.error(message);
     } finally {
       setIsArchiving(false);
+    }
+  };
+
+  const confirmPermanentDelete = async () => {
+    if (!deletingPackage) return;
+
+    setIsDeletingPermanently(true);
+    setPermanentDeleteError(null);
+    try {
+      await deletePackage(deletingPackage.id);
+      setPackages((prev) => prev.filter((pkg) => pkg.id !== deletingPackage.id));
+      toast.success(`${deletingPackage.name} deleted permanently`);
+      setIsPermanentDeleteOpen(false);
+      setDeletingPackage(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to delete batch.';
+      reportOperationalError('package.delete', 'Failed to permanently delete package.', error, { packageId: deletingPackage.id });
+      setPermanentDeleteError(message);
+    } finally {
+      setIsDeletingPermanently(false);
     }
   };
 
@@ -453,12 +482,19 @@ export default function Packages() {
                         <Edit2 className="w-3.5 h-3.5 mr-2 text-slate-400" />
                         Edit Batch
                       </DropdownMenuItem>
-                      <DropdownMenuItem 
+                      <DropdownMenuItem
                         onClick={() => handleDeleteClick(pkg)}
                         className="rounded-lg font-bold text-xs py-2 cursor-pointer text-red-500 focus:text-red-600 focus:bg-red-50"
                       >
                         <Trash2 className="w-3.5 h-3.5 mr-2" />
-                        Delete Batch
+                        Archive Batch
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onClick={() => handlePermanentDeleteClick(pkg)}
+                        className="rounded-lg font-bold text-xs py-2 cursor-pointer text-red-600 focus:text-red-700 focus:bg-red-50"
+                      >
+                        <Trash2 className="w-3.5 h-3.5 mr-2" />
+                        Delete Permanently
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -687,6 +723,54 @@ export default function Packages() {
               >
                 {isArchiving ? 'Archiving...' : 'Yes, Archive'}
               </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Delete Confirmation */}
+      <Dialog
+        open={isPermanentDeleteOpen}
+        onOpenChange={(open) => {
+          setIsPermanentDeleteOpen(open);
+          if (!open) setPermanentDeleteError(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px] rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-display font-bold text-slate-900">Delete Batch Permanently?</DialogTitle>
+            <DialogDescription className="text-slate-500 pt-2">
+              This will permanently remove <span className="font-bold text-slate-900">{deletingPackage?.name}</span> from
+              the database. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 flex justify-center">
+            <div className="w-16 h-16 rounded-full bg-red-50 flex items-center justify-center">
+              <AlertCircle className="w-8 h-8 text-red-500" />
+            </div>
+          </div>
+          {permanentDeleteError && (
+            <div className="rounded-xl bg-red-50 border border-red-100 px-4 py-3 text-sm font-medium text-red-700">
+              {permanentDeleteError}
+            </div>
+          )}
+          <DialogFooter className="gap-3 mt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setIsPermanentDeleteOpen(false);
+                setPermanentDeleteError(null);
+              }}
+              className="h-11 flex-1 rounded-xl font-bold text-slate-500 border-slate-200"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmPermanentDelete}
+              disabled={isDeletingPermanently}
+              className="h-11 flex-1 rounded-xl font-bold bg-red-600 hover:bg-red-700 shadow-lg shadow-red-100 transition-all active:scale-95"
+            >
+              {isDeletingPermanently ? 'Deleting...' : 'Yes, Delete Permanently'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
