@@ -156,6 +156,16 @@ export async function archivePackage(packageId: string) {
   if (error) throw error;
 }
 
+export async function deletePackage(packageId: string) {
+  if (!isSupabaseConfigured || !supabase) throw new Error('Supabase is not configured.');
+
+  const { error } = await (supabase as any).rpc('delete_package_safe', {
+    p_package_id: packageId,
+  });
+
+  if (error) throw new Error((error as any).message || 'Failed to delete batch.');
+}
+
 export async function createStudent(input: {
   name: string;
   phone?: string;
