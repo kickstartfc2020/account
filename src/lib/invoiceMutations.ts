@@ -31,10 +31,10 @@ export async function updateInvoiceDate(invoiceNumber: string, invoiceDate: stri
     throw new Error('Supabase is not configured.');
   }
 
-  const { error } = await (supabase as any)
-    .from('invoices')
-    .update({ invoice_date: invoiceDate })
-    .eq('invoice_number', invoiceNumber);
+  const { error } = await (supabase as any).rpc('update_invoice_date_audited', {
+    p_invoice_number: invoiceNumber,
+    p_invoice_date: invoiceDate,
+  });
 
   if (error) {
     reportOperationalError('invoice.update_date', 'Failed to update invoice date.', error, {

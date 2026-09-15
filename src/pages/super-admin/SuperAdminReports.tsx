@@ -108,7 +108,7 @@ export default function SuperAdminReports() {
   // ── Revenue by sport ──────────────────────────────────────────────────────
   const revenueBySport = React.useMemo(() => {
     const map = new Map<string, number>();
-    const studentSportMap = new Map(allStudents.map((s) => [s.id, s.sportName]));
+    const studentSportMap = new Map<string, string>(allStudents.map((s): [string, string] => [s.id, s.sportName]));
     filteredInvoices.forEach((inv) => {
       const sport = studentSportMap.get(inv.studentId) ?? 'Manual';
       map.set(sport, (map.get(sport) ?? 0) + inv.total);

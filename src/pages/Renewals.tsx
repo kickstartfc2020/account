@@ -90,16 +90,21 @@ export default function Renewals() {
 
   const handleRenew = (renewal: any) => {
     setSelectedRenewal(renewal);
-    const initialPackage = packagesData.find((pkg) => pkg.name === renewal.currentPackageName) ?? packagesData[0];
-    setSelectedPackageId(initialPackage?.id ?? '');
+    // The batch is locked to whatever this renewal was generated for -- it
+    // cannot be changed here (see complete_renewal_with_invoice, which now
+    // rejects a mismatched package). Switching a student's batch is a
+    // separate enrollment action, not a renewal-completion one.
+    setSelectedPackageId(renewal.packageId ?? '');
     setPaymentMode('upi');
     setRenewalStartDate(format(new Date(), 'yyyy-MM-dd'));
   };
 
   const selectedPackage = packagesData.find((pkg) => pkg.id === selectedPackageId) ?? null;
   const selectedStudent = selectedRenewal ? studentsData.find((student) => student.id === selectedRenewal.studentId) : null;
-  const selectedPackageAmount = selectedPackage?.price ?? 0;
-  const selectedGstPercent = selectedPackage?.taxPercent ?? 18;
+  // Authoritative amount: the renewal's own stored balance_amount, not the
+  // package's (possibly since-changed) live price.
+  const selectedPackageAmount = selectedRenewal?.balanceAmount ?? 0;
+  const selectedGstPercent = selectedRenewal?.packageGstPercent ?? selectedPackage?.taxPercent ?? 18;
   const selectedBilling = computeBillingTotals(selectedPackageAmount, selectedGstPercent);
 
   const confirmRenewal = async () => {
@@ -117,8 +122,8 @@ export default function Renewals() {
         sportId: selectedPackage.sportId,
         packageName: selectedPackage.name,
         sportName: selectedPackage.sportName,
-        amount: selectedPackage.price,
-        gstPercent: selectedPackage.taxPercent,
+        amount: selectedPackageAmount,
+        gstPercent: selectedGstPercent,
         paymentMethod: paymentMode,
         paymentModeLabel: paymentMode,
         startDate: renewalStartDate,
@@ -403,19 +408,16 @@ export default function Renewals() {
 
                         <div className="space-y-4">
                           <div className="space-y-1.5">
-                            <label className="text-xs font-bold text-slate-500 uppercase">Select New Batch</label>
-                            <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
-                              <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Select batch" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {packagesData.map(pkg => (
-                                  <SelectItem key={pkg.id} value={pkg.id}>
-                                    {pkg.name} - ₹{pkg.price}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
+                            <label className="text-xs font-bold text-slate-500 uppercase">Batch</label>
+                            <div className="w-full h-10 px-3 rounded-md border bg-slate-50 flex items-center justify-between text-sm">
+                              <span className="font-semibold text-slate-900">
+                                {selectedPackage?.name ?? selectedRenewal?.currentPackageName ?? '—'}
+                              </span>
+                              <Badge variant="outline" className="bg-white text-[10px]">Locked to this renewal</Badge>
+                            </div>
+                            <p className="text-[11px] text-slate-400">
+                              To renew into a different batch, update the student's enrollment first.
+                            </p>
                           </div>
 
                           <div className="grid grid-cols-2 gap-4">

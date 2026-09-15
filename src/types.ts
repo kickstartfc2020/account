@@ -122,6 +122,10 @@ export interface Renewal {
   daysLeft: number;
   status: StudentStatus;
   renewalStatus?: 'pending' | 'overdue' | 'completed' | 'cancelled';
+  /** Authoritative pending amount for this renewal, locked in when it was generated. */
+  balanceAmount: number;
+  /** Package's current GST rate, used to display the tax breakdown for balanceAmount. */
+  packageGstPercent: number;
 }
 
 export interface StudentEnrollment {

@@ -29,6 +29,10 @@ type FinalizeInvoiceInput = {
   /** Required by the database whenever paidAmount leaves a balance outstanding. */
   reminderDate?: string;
   reminderNote?: string;
+  /** Overrides the default invoice notes (e.g. serialized manual bill-to details). */
+  notes?: string;
+  /** New value for students.previous_received_amount, applied atomically with this invoice (new invoices only). */
+  previousReceivedAmount?: number;
 };
 
 async function resolveTenantContext(studentId: string, preferredBranchId?: string | null) {
@@ -130,6 +134,8 @@ export async function finalizeInvoiceWrite(input: FinalizeInvoiceInput) {
     p_paid_amount: input.paidAmount ?? null,
     p_reminder_date: input.reminderDate ?? null,
     p_reminder_note: input.reminderNote ?? null,
+    p_notes: input.notes ?? null,
+    p_previous_received_amount: input.previousReceivedAmount ?? null,
   });
 
   if (error || !data) {
@@ -171,6 +177,7 @@ export async function recordInvoicePayment(input: {
   amount: number;
   paymentMethod: PaymentMethod;
   paymentModeLabel: string;
+  requestKey?: string;
 }) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured.');
@@ -181,6 +188,7 @@ export async function recordInvoicePayment(input: {
     p_amount: input.amount,
     p_payment_method: input.paymentMethod,
     p_payment_mode_label: input.paymentModeLabel,
+    p_request_key: input.requestKey ?? null,
   });
 
   if (error) {

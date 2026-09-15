@@ -53,12 +53,32 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
   const [paymentAmount, setPaymentAmount] = React.useState('');
   const [paymentMethod, setPaymentMethod] = React.useState<'cash' | 'card' | 'upi' | 'bank_transfer'>('cash');
   const [isRecordingPayment, setIsRecordingPayment] = React.useState(false);
+  // One UUID per payment dialog/submission, reused across retries of the
+  // same submission (so a network retry or double-click resolves to the
+  // same record_invoice_payment call instead of creating a duplicate
+  // payment) and regenerated whenever the dialog is opened fresh.
+  const paymentRequestKeyRef = React.useRef<string | null>(null);
+
+  const openPaymentDialog = (invoice: { dbId: string; balanceAmount: number }) => {
+    paymentRequestKeyRef.current = crypto.randomUUID();
+    setPayingInvoiceId(invoice.dbId);
+    setPaymentAmount(String(invoice.balanceAmount));
+  };
+
+  const closePaymentDialog = () => {
+    paymentRequestKeyRef.current = null;
+    setPayingInvoiceId(null);
+  };
 
   const handleRecordPayment = async (invoiceDbId: string) => {
     const amount = parseFloat(paymentAmount || '0');
     if (!paymentAmount || amount <= 0) {
       toast.error('Enter an amount greater than zero.');
       return;
+    }
+
+    if (!paymentRequestKeyRef.current) {
+      paymentRequestKeyRef.current = crypto.randomUUID();
     }
 
     setIsRecordingPayment(true);
@@ -68,9 +88,10 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
         amount,
         paymentMethod,
         paymentModeLabel: paymentMethod,
+        requestKey: paymentRequestKeyRef.current,
       });
       toast.success('Payment recorded.');
-      setPayingInvoiceId(null);
+      closePaymentDialog();
       setPaymentAmount('');
     } catch (error) {
       reportOperationalError('invoice.record_payment', 'Failed to record payment.', error, { invoiceId: invoiceDbId });
@@ -407,10 +428,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
                               variant="ghost"
                               size="sm"
                               className="h-7 text-[10px] font-bold text-emerald-600 p-0 hover:bg-transparent"
-                              onClick={() => {
-                                setPayingInvoiceId(invoice.dbId);
-                                setPaymentAmount(String(invoice.balanceAmount));
-                              }}
+                              onClick={() => openPaymentDialog(invoice)}
                             >
                               Record Payment
                             </Button>
@@ -443,7 +461,7 @@ export function StudentDetailSheet({ student, children, studentEnrollments = [],
                             </Select>
                           </div>
                           <div className="flex gap-2 justify-end">
-                            <Button variant="outline" size="sm" className="h-8 text-[11px]" onClick={() => setPayingInvoiceId(null)} disabled={isRecordingPayment}>
+                            <Button variant="outline" size="sm" className="h-8 text-[11px]" onClick={closePaymentDialog} disabled={isRecordingPayment}>
                               Cancel
                             </Button>
                             <Button

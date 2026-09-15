@@ -7,6 +7,7 @@ import {
   downloadInvoicesExcelBackup,
   getFinancialYearResetPreview,
   resetFinancialYearForOrganization,
+  getCurrentFinancialYearLabel,
   type FinancialYearResetPreview,
 } from '@/lib/invoiceReset';
 import { formatDateDMY } from '@/lib/utils';
@@ -52,6 +53,8 @@ export default function InvoicesOverview() {
   const [resetPreview, setResetPreview] = React.useState<FinancialYearResetPreview | null>(null);
   const [resetConfirmationText, setResetConfirmationText] = React.useState('');
   const [resetStep, setResetStep] = React.useState<1 | 2>(1);
+  const [resetFinancialYear] = React.useState(() => getCurrentFinancialYearLabel());
+  const resetConfirmationPhrase = `RESET ${resetFinancialYear}`;
 
   const toDateKey = React.useCallback((value: string) => {
     const directMatch = value.match(/^(\d{4}-\d{2}-\d{2})/);
@@ -141,7 +144,7 @@ export default function InvoicesOverview() {
   const loadResetPreview = React.useCallback(async () => {
     setIsResetPreviewLoading(true);
     try {
-      const preview = await getFinancialYearResetPreview(null);
+      const preview = await getFinancialYearResetPreview(resetFinancialYear, null);
       setResetPreview(preview);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to load financial year impact preview.');
@@ -149,7 +152,7 @@ export default function InvoicesOverview() {
     } finally {
       setIsResetPreviewLoading(false);
     }
-  }, []);
+  }, [resetFinancialYear]);
 
   const openResetDialog = async () => {
     if (role !== 'super_admin') {
@@ -167,14 +170,14 @@ export default function InvoicesOverview() {
       toast.error('Only super admins can reset financial year records.');
       return;
     }
-    if (resetConfirmationText.trim() !== 'RESET') {
-      toast.error('Type RESET exactly to continue.');
+    if (resetConfirmationText.trim() !== resetConfirmationPhrase) {
+      toast.error(`Type ${resetConfirmationPhrase} exactly to continue.`);
       return;
     }
 
     setIsResettingInvoices(true);
     try {
-      const result = await resetFinancialYearForOrganization(null, 'RESET');
+      const result = await resetFinancialYearForOrganization(resetFinancialYear, null, resetConfirmationPhrase);
       toast.success(`Global financial year reset complete. ${result.invoices_deleted} invoices and ${result.renewals_deleted} renewals were removed.`);
       setIsResetDialogOpen(false);
       setResetStep(1);
@@ -273,7 +276,7 @@ export default function InvoicesOverview() {
               Global Financial Year Reset
             </DialogTitle>
             <DialogDescription>
-              This permanently deletes current financial-year accounting records across all organizations. A database backup snapshot and audit trail entry are created before deletion.
+              This permanently deletes financial year {resetFinancialYear} accounting records across all organizations. No backup or audit snapshot is taken -- export an Excel backup first if you need one.
             </DialogDescription>
           </DialogHeader>
 
@@ -297,18 +300,20 @@ export default function InvoicesOverview() {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase text-slate-500">Type RESET to continue</label>
+              <label className="text-xs font-bold uppercase text-slate-500">
+                Type {resetConfirmationPhrase} to continue
+              </label>
               <Input
                 value={resetConfirmationText}
                 onChange={(event) => setResetConfirmationText(event.target.value)}
-                placeholder="RESET"
+                placeholder={resetConfirmationPhrase}
                 disabled={isResettingInvoices}
               />
             </div>
 
             {resetStep === 2 && (
               <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-                Final confirmation: Are you absolutely sure you want to delete this financial year data now?
+                Final confirmation: Are you absolutely sure you want to delete financial year {resetFinancialYear} data now?
               </div>
             )}
           </div>
@@ -319,12 +324,12 @@ export default function InvoicesOverview() {
               <Button
                 variant="destructive"
                 onClick={() => setResetStep(2)}
-                disabled={isResetPreviewLoading || !resetPreview || resetConfirmationText.trim() !== 'RESET' || isResettingInvoices}
+                disabled={isResetPreviewLoading || !resetPreview || resetConfirmationText.trim() !== resetConfirmationPhrase || isResettingInvoices}
               >
                 Continue to Final Confirmation
               </Button>
             ) : (
-              <Button variant="destructive" onClick={() => void handleBackupAndResetAllInvoices()} disabled={isResettingInvoices || resetConfirmationText.trim() !== 'RESET'}>
+              <Button variant="destructive" onClick={() => void handleBackupAndResetAllInvoices()} disabled={isResettingInvoices || resetConfirmationText.trim() !== resetConfirmationPhrase}>
                 {isResettingInvoices ? 'Resetting...' : 'Delete Financial Year Data'}
               </Button>
             )}
