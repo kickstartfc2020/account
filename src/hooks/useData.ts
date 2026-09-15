@@ -452,7 +452,7 @@ export function useRenewals() {
     if (!renewalsCache) setLoading(true);
     supabase
       .from('renewals')
-      .select('id, ref_id, student_id, package_id, cycle_end, due_date, status, students(name), packages(name, sports(name))')
+      .select('id, ref_id, student_id, package_id, cycle_end, due_date, status, balance_amount, students(name), packages(name, gst_percent, sports(name))')
       .in('status', ['pending', 'overdue'])
       .order('due_date')
       .then(({ data: rows, error }) => {
@@ -464,7 +464,7 @@ export function useRenewals() {
           const r = (rows ?? []) as any[];
           const mapped = r.map((rv) => {
               const student = rv.students as { name: string } | null;
-              const pkg = rv.packages as { name: string; sports: { name: string } | null } | null;
+              const pkg = rv.packages as { name: string; gst_percent: number | null; sports: { name: string } | null } | null;
               const daysLeft = differenceInDays(parseISO(rv.cycle_end as string), new Date());
               const status: StudentStatus =
                 daysLeft < 0 ? 'expired' : daysLeft <= 30 ? 'expiring' : 'active';
@@ -481,6 +481,8 @@ export function useRenewals() {
               daysLeft,
               status,
               renewalStatus,
+              balanceAmount: (rv.balance_amount as number) ?? 0,
+              packageGstPercent: (pkg?.gst_percent as number) ?? 18,
             };
             });
           renewalsCache = mapped;

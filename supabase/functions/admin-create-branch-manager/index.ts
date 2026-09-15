@@ -24,6 +24,10 @@ function json(status: number, body: Record<string, unknown>) {
   });
 }
 
+function isValidEmail(email: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -77,8 +81,8 @@ Deno.serve(async (req) => {
     const fullName = (payload.fullName ?? '').toString().trim();
     const branchId = payload.branchId?.trim();
 
-    if (!email) {
-      return json(400, { message: 'Email is required.' });
+    if (!email || !isValidEmail(email)) {
+      return json(400, { message: 'A valid email is required.' });
     }
     if (password.length < 6) {
       return json(400, { message: 'Password must be at least 6 characters.' });

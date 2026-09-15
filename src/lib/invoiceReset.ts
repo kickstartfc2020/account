@@ -83,6 +83,14 @@ export function downloadInvoicesExcelBackup(invoices: Invoice[], organizationNam
   triggerDownload(html, fileName, 'application/vnd.ms-excel');
 }
 
+/** Current Indian financial year (April 1 - March 31) as 'YYYY-YY', matching the server's FY math. */
+export function getCurrentFinancialYearLabel(reference: Date = new Date()): string {
+  const month = reference.getMonth() + 1; // 1-12
+  const startYear = month >= 4 ? reference.getFullYear() : reference.getFullYear() - 1;
+  const endYearSuffix = String((startYear + 1) % 100).padStart(2, '0');
+  return `${startYear}-${endYearSuffix}`;
+}
+
 export type FinancialYearResetPreview = {
   financial_year: string;
   fy_start: string;
@@ -109,12 +117,13 @@ function toError(raw: unknown, fallback: string): Error {
   return new Error(typeof msg === 'string' && msg ? msg : fallback);
 }
 
-export async function getFinancialYearResetPreview(organizationId?: string | null) {
+export async function getFinancialYearResetPreview(financialYear: string, organizationId?: string | null) {
   if (!isSupabaseConfigured || !supabase) {
     throw new Error('Supabase is not configured.');
   }
 
   const { data, error } = await (supabase as any).rpc('get_financial_year_reset_preview', {
+    p_financial_year: financialYear,
     p_organization_id: organizationId ?? null,
   });
 
@@ -131,8 +140,9 @@ export async function getFinancialYearResetPreview(organizationId?: string | nul
 }
 
 export async function resetFinancialYearForOrganization(
+  financialYear: string,
   organizationId?: string | null,
-  confirmationText = 'RESET',
+  confirmationText?: string,
   ipAddress?: string | null,
 ) {
   if (!isSupabaseConfigured || !supabase) {
@@ -140,8 +150,9 @@ export async function resetFinancialYearForOrganization(
   }
 
   const { data, error } = await (supabase as any).rpc('admin_reset_financial_year', {
+    p_financial_year: financialYear,
     p_organization_id: organizationId ?? null,
-    p_confirmation_text: confirmationText,
+    p_confirmation_text: confirmationText ?? `RESET ${financialYear}`,
     p_ip_address: ipAddress ?? null,
   });
 

@@ -64,13 +64,13 @@ export const STUDENTS: Student[] = [
 ];
 
 export const INVOICES: Invoice[] = [
-  { id: 'INV-001', studentId: 'st1', studentName: 'Rahul Sharma', amount: 2000, tax: 360, total: 2360, status: 'completed', balanceAmount: 0, paymentMode: 'upi', date: '2025-04-12', locationId: '1', locationName: 'Mysore Main', packageName: 'Monthly Basic' },
-  { id: 'INV-002', studentId: 'st2', studentName: 'Priya Singh', amount: 3000, tax: 540, total: 3540, status: 'completed', balanceAmount: 0, paymentMode: 'card', date: '2025-05-01', locationId: '1', locationName: 'Mysore Main', packageName: 'Summer Camp' },
+  { id: 'INV-001', dbId: 'inv-db-001', studentId: 'st1', studentName: 'Rahul Sharma', amount: 2000, discountAmount: 0, tax: 360, cgstAmount: 180, sgstAmount: 180, total: 2360, status: 'completed', balanceAmount: 0, paymentMode: 'upi', date: '2025-04-12', locationId: '1', locationName: 'Mysore Main', packageName: 'Monthly Basic' },
+  { id: 'INV-002', dbId: 'inv-db-002', studentId: 'st2', studentName: 'Priya Singh', amount: 3000, discountAmount: 0, tax: 540, cgstAmount: 270, sgstAmount: 270, total: 3540, status: 'completed', balanceAmount: 0, paymentMode: 'card', date: '2025-05-01', locationId: '1', locationName: 'Mysore Main', packageName: 'Summer Camp' },
 ];
 
 export const RENEWALS: Renewal[] = [
-  { id: 'r1', refId: 'REN-2026-000001', studentId: 'st1', studentName: 'Rahul Sharma', sportName: 'Football', currentPackageName: 'Monthly Basic', expiryDate: format(addDays(new Date(), 5), 'yyyy-MM-dd'), daysLeft: 5, status: 'expiring' },
-  { id: 'r2', refId: 'REN-2026-000002', studentId: 'st3', studentName: 'Anish Kumar', sportName: 'Cricket', currentPackageName: 'Quarterly Pro', expiryDate: format(subDays(new Date(), 2), 'yyyy-MM-dd'), daysLeft: -2, status: 'expired' },
+  { id: 'r1', refId: 'REN-2026-000001', studentId: 'st1', studentName: 'Rahul Sharma', sportName: 'Football', currentPackageName: 'Monthly Basic', expiryDate: format(addDays(new Date(), 5), 'yyyy-MM-dd'), daysLeft: 5, status: 'expiring', balanceAmount: 2000, packageGstPercent: 18 },
+  { id: 'r2', refId: 'REN-2026-000002', studentId: 'st3', studentName: 'Anish Kumar', sportName: 'Cricket', currentPackageName: 'Quarterly Pro', expiryDate: format(subDays(new Date(), 2), 'yyyy-MM-dd'), daysLeft: -2, status: 'expired', balanceAmount: 3000, packageGstPercent: 18 },
 ];
 
 export const DASHBOARD_STATS = [

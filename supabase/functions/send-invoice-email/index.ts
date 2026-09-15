@@ -35,6 +35,15 @@ function isValidEmail(email: string) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -93,26 +102,52 @@ Deno.serve(async (req) => {
       return json(400, { message: 'Invoice number is required.' });
     }
 
-    const totalAmount = Number(payload.totalAmount ?? 0);
-    const subject = `Invoice ${invoiceNumber} from ${payload.academyName?.trim() || 'Kickstart FC'}`;
+    // Do not trust client-supplied financial fields (totalAmount, invoiceDate,
+    // status, branchName, academyName). Look the invoice up through a client
+    // scoped to the caller's own JWT so RLS restricts the lookup to invoices
+    // the caller can actually access, and use only DB-sourced values for the
+    // email content below.
+    const {
+      data: invoiceRecord,
+      error: invoiceError,
+    } = await callerClient
+      .from('invoices')
+      .select(
+        'invoice_number, invoice_date, status, total_amount, branches(name), organizations(name)',
+      )
+      .eq('invoice_number', invoiceNumber)
+      .maybeSingle();
+
+    if (invoiceError || !invoiceRecord) {
+      return json(404, { message: 'Invoice not found or not accessible.' });
+    }
+
+    const totalAmount = Number((invoiceRecord as any).total_amount ?? 0);
+    const invoiceDate = (invoiceRecord as any).invoice_date ?? '-';
+    const status = (invoiceRecord as any).status ?? '-';
+    const branchName = (invoiceRecord as any).branches?.name ?? '-';
+    const academyName = (invoiceRecord as any).organizations?.name?.trim() || 'Kickstart FC';
+    const paymentMode = payload.paymentMode || '-';
+
+    const subject = `Invoice ${invoiceNumber} from ${academyName}`;
     const amountLabel = Number.isFinite(totalAmount)
       ? `INR ${Math.round(totalAmount).toLocaleString('en-IN')}`
       : 'INR 0';
 
     const html = `
       <div style="font-family:Arial,sans-serif;line-height:1.6;color:#0f172a;max-width:640px;margin:0 auto;">
-        <h2 style="margin:0 0 8px 0;color:#111827;">Invoice ${invoiceNumber}</h2>
-        <p style="margin:0 0 14px 0;">Hello ${toName},</p>
+        <h2 style="margin:0 0 8px 0;color:#111827;">Invoice ${escapeHtml(invoiceNumber)}</h2>
+        <p style="margin:0 0 14px 0;">Hello ${escapeHtml(toName)},</p>
         <p style="margin:0 0 14px 0;">Please find your invoice attached.</p>
         <table style="border-collapse:collapse;width:100%;margin:8px 0 16px 0;">
-          <tr><td style="padding:6px 0;color:#64748b;">Invoice Number</td><td style="padding:6px 0;font-weight:700;">${invoiceNumber}</td></tr>
-          <tr><td style="padding:6px 0;color:#64748b;">Date</td><td style="padding:6px 0;">${payload.invoiceDate || '-'}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;">Invoice Number</td><td style="padding:6px 0;font-weight:700;">${escapeHtml(invoiceNumber)}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;">Date</td><td style="padding:6px 0;">${escapeHtml(String(invoiceDate))}</td></tr>
           <tr><td style="padding:6px 0;color:#64748b;">Amount</td><td style="padding:6px 0;">${amountLabel}</td></tr>
-          <tr><td style="padding:6px 0;color:#64748b;">Status</td><td style="padding:6px 0;">${payload.status || '-'}</td></tr>
-          <tr><td style="padding:6px 0;color:#64748b;">Payment Mode</td><td style="padding:6px 0;">${payload.paymentMode || '-'}</td></tr>
-          <tr><td style="padding:6px 0;color:#64748b;">Branch</td><td style="padding:6px 0;">${payload.branchName || '-'}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;">Status</td><td style="padding:6px 0;">${escapeHtml(String(status))}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;">Payment Mode</td><td style="padding:6px 0;">${escapeHtml(paymentMode)}</td></tr>
+          <tr><td style="padding:6px 0;color:#64748b;">Branch</td><td style="padding:6px 0;">${escapeHtml(String(branchName))}</td></tr>
         </table>
-        <p style="margin:0;color:#64748b;font-size:12px;">This is an automated email from ${payload.academyName?.trim() || 'Kickstart FC'}.</p>
+        <p style="margin:0;color:#64748b;font-size:12px;">This is an automated email from ${escapeHtml(academyName)}.</p>
       </div>
     `;
 

@@ -384,4 +384,4 @@ s3_access_key = "env(S3_ACCESS_KEY)"
 s3_secret_key = "env(S3_SECRET_KEY)"
 
 [functions.admin-create-branch-manager]
-verify_jwt = false
+verify_jwt = true

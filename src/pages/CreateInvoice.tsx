@@ -44,7 +44,7 @@ import { formatDateDMY } from '@/lib/utils';
 import { reportOperationalError } from '@/lib/observability';
 import { toast } from 'sonner';
 import { finalizeInvoiceWrite } from '@/lib/invoiceWrite';
-import { createPackage, createSport, createStudent, updateStudentPreviousReceivedAmount } from '@/lib/dataMutations';
+import { createStudent } from '@/lib/dataMutations';
 import { useInvoiceCalculator } from '@/hooks/useInvoiceCalculator';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { serializeManualInvoiceNotes } from '@/lib/manualInvoice';
@@ -396,82 +396,32 @@ export default function CreateInvoice() {
           throw new Error('Supabase is not configured.');
         }
 
-        // Always use an active dedicated manual sport.
-        let manualSport = null as { id: string; name: string; status: string; archived_at: string | null } | null;
-        {
-          const { data } = await (supabase.from('sports') as any)
-            .select('id, name, status, archived_at')
-            .eq('name', 'Manual Invoices')
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          manualSport = (data ?? null) as { id: string; name: string; status: string; archived_at: string | null } | null;
-        }
+        // Atomic find-or-create: a single RPC does both the sport and
+        // package upserts server-side via INSERT ... ON CONFLICT DO UPDATE,
+        // so concurrent employees creating the first manual invoice always
+        // converge on the same sport/package row instead of racing a
+        // client-side select-then-insert (which could surface a raw unique
+        // -violation error to whichever request lost the race).
+        const { data: context, error: contextError } = await (supabase as any).rpc(
+          'get_or_create_manual_billing_context',
+          { p_gst_percent: parseFloat(gstRate) || 18 },
+        );
 
-        if (!manualSport) {
-          const createdSport = await createSport({ name: 'Manual Invoices' });
-          manualSport = {
-            id: createdSport.id,
-            name: createdSport.name,
-            status: 'active',
-            archived_at: null,
-          };
-        } else if (manualSport.status !== 'active' || manualSport.archived_at) {
-          const { error: reactivateSportError } = await (supabase.from('sports') as any)
-            .update({ status: 'active', archived_at: null })
-            .eq('id', manualSport.id);
-          if (reactivateSportError) throw reactivateSportError;
-          manualSport.status = 'active';
-          manualSport.archived_at = null;
+        const manualContext = Array.isArray(context) ? context[0] : context;
+
+        if (contextError || !manualContext) {
+          throw contextError ?? new Error('Failed to initialize manual batch context.');
         }
 
         sportForWrite = {
-          id: manualSport.id,
-          name: manualSport.name,
+          id: manualContext.sport_id,
+          name: manualContext.sport_name,
         } as typeof effectiveSport;
 
-        // Always use an active dedicated manual package bound to the manual sport.
-        let manualPackage = null as { id: string; name: string; sport_id: string; status: string; archived_at: string | null } | null;
-        {
-          const { data } = await (supabase.from('packages') as any)
-            .select('id, name, sport_id, status, archived_at')
-            .eq('name', 'Manual Billing Package')
-            .eq('sport_id', sportForWrite.id)
-            .order('created_at', { ascending: true })
-            .limit(1)
-            .maybeSingle();
-          manualPackage = (data ?? null) as { id: string; name: string; sport_id: string; status: string; archived_at: string | null } | null;
-        }
-
-        if (!manualPackage) {
-          const createdPackage = await createPackage({
-            sportId: sportForWrite.id,
-            name: 'Manual Billing Package',
-            billingType: 'one-time',
-            durationMonths: 1,
-            amount: 0,
-            gstPercent: parseFloat(gstRate) || 18,
-          });
-          manualPackage = {
-            id: createdPackage.id,
-            name: 'Manual Billing Package',
-            sport_id: sportForWrite.id,
-            status: 'active',
-            archived_at: null,
-          };
-        } else if (manualPackage.status !== 'active' || manualPackage.archived_at) {
-          const { error: reactivatePackageError } = await (supabase.from('packages') as any)
-            .update({ status: 'active', archived_at: null })
-            .eq('id', manualPackage.id);
-          if (reactivatePackageError) throw reactivatePackageError;
-          manualPackage.status = 'active';
-          manualPackage.archived_at = null;
-        }
-
         packageForWrite = {
-          id: manualPackage.id,
-          name: manualPackage.name,
-          sportId: manualPackage.sport_id,
+          id: manualContext.package_id,
+          name: manualContext.package_name,
+          sportId: manualContext.sport_id,
         } as typeof effectivePackage;
 
         if (!effectiveSport || !effectivePackage) {
@@ -615,6 +565,22 @@ export default function CreateInvoice() {
       }
     }
 
+    // Both previously-separate post-commit writes now travel with the
+    // finalize_invoice_write_v2 call itself and land in the same database
+    // transaction as the invoice/items/payment/reminder rows -- see
+    // 20260915190000_finalize_invoice_write_atomic_notes_and_previous_received.sql.
+    const manualNotes = isManualMode
+      ? serializeManualInvoiceNotes({
+          name: manualCustomerName.trim(),
+          email: manualCustomerEmail.trim(),
+          phone: manualCustomerPhone.trim(),
+          gst: manualCustomerGst.trim(),
+          pan: manualCustomerPan.trim(),
+        })
+      : undefined;
+    const previousReceivedAmountChanged =
+      !isManualMode && previousReceivedAmountValue !== (selectedStudent?.previousReceivedAmount ?? 0);
+
     try {
       const result = await finalizeInvoiceWrite({
         studentId: studentForWrite.id,
@@ -638,37 +604,17 @@ export default function CreateInvoice() {
         paidAmount: opts.paidAmount,
         reminderDate: opts.reminderDate,
         reminderNote: opts.reminderNote,
+        notes: manualNotes,
+        previousReceivedAmount: previousReceivedAmountChanged ? previousReceivedAmountValue : undefined,
       });
 
-      if (!isManualMode && previousReceivedAmountValue !== (selectedStudent?.previousReceivedAmount ?? 0)) {
+      if (previousReceivedAmountChanged && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('app:students:changed'));
         try {
-          await updateStudentPreviousReceivedAmount(studentForWrite.id, previousReceivedAmountValue);
-        } catch (error) {
-          reportOperationalError('invoice.previous_received_amount', 'Failed to save previous received amount.', error, {
-            studentId: studentForWrite.id,
-          });
-        }
-      }
-
-      if (isManualMode && supabase) {
-        const manualNotes = serializeManualInvoiceNotes({
-          name: manualCustomerName.trim(),
-          email: manualCustomerEmail.trim(),
-          phone: manualCustomerPhone.trim(),
-          gst: manualCustomerGst.trim(),
-          pan: manualCustomerPan.trim(),
-        });
-
-        const { error: notesError } = await supabase
-          .from('invoices')
-          .update({ notes: manualNotes })
-          .eq('id', result.invoiceId);
-
-        if (notesError) {
-          reportOperationalError('invoice.manual_notes', 'Failed to save manual invoice bill-to details.', notesError, {
-            invoiceId: result.invoiceId,
-            invoiceNumber: result.invoiceNumber,
-          });
+          window.localStorage.setItem('app:students:changed', String(Date.now()));
+        } catch {
+          // Ignore storage errors (private mode / disabled storage) because
+          // same-tab event dispatch above is still sufficient.
         }
       }
 
